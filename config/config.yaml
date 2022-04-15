@@ -1,0 +1,104 @@
+
+# DATASETS
+
+#datasets_folder_path: 'D:/Google Drive/Disser/Code/Datasets'
+datasets_folder_path: '/home/helen/Datasets'
+train_data_dir: [
+  '/ICDAR 2013/Challenge2_Training_Task3_Images_GT',
+  '/ICDAR 2015/ch4_training_word_images_gt',
+  '/The Street View Text/svt2/img_train',
+  '/The IIIT 5K-word/train',
+]
+train_data_annotations_file: [
+  '/ICDAR 2013/Challenge2_Training_Task3_Images_GT/gt.txt',
+  '/ICDAR 2015/ch4_training_word_images_gt/gt.txt',
+  '/The Street View Text/svt2/train.txt',
+  '/The IIIT 5K-word/train.txt',
+]
+
+train_data_textzoom_dir: [
+  '/TextZoom/train1',
+  '/TextZoom/train2',
+]
+
+ttrain_data_textzoom_dir: [
+
+]
+
+test_val_data_dir: [
+  '/ICDAR 2013/Challenge2_Test_Task3_Images',
+  '/ICDAR 2015/ch4_test_word_images_gt',
+  '/The Street View Text/svt2/img_test',
+  '/The IIIT 5K-word/test',
+]
+test_val_data_annotations_file: [
+  '/ICDAR 2013/Challenge2_Test_Task3_Images/gt.txt',
+  '/ICDAR 2015/ch4_test_word_images_gt/gt.txt',
+  '/The Street View Text/svt2/test.txt',
+  '/The IIIT 5K-word/test.txt',
+]
+test_val_textzoom_data_dir: [
+  '/TextZoom/test/hard',
+  '/TextZoom/test/easy',
+  '/TextZoom/test/medium',
+]
+ttest_val_textzoom_data_dir: [
+]
+
+# MODEL
+
+scale_factor: 2
+width: 64
+height: 32
+convNext_type: 'S' # T, S, L
+
+
+# TRAIN PROCCES
+
+batch_size: 73
+epochs: 1000
+cuda: True
+ngpu: 1
+workers: 0
+lr: 0.01
+
+displayInterval: 10 #display loss
+
+resume: ''
+
+manualSeed: 1234
+
+ckpt_dir: './ckpt/'
+voc_type: 'all' #'digits lower upper all'
+saveInterval: 200
+adadelta: False
+adam: True
+beta1: 0.5
+max_len: 100
+keep_ratio: False
+max_word_len: 24
+
+TGT_VOCAB_SIZE: 88 # большие и маленькие английские буквы + 10 цифр + 25 символов + пробел
+BOS: 89
+EOS: 90
+PAD: 91
+BLANK: 0
+FULL_VOCAB_SIZE: 92
+
+# LOSS
+
+lambda_ctc: 0
+#lambda_ctc: 0.01
+
+n_vis: 10
+vis_dir: 'demo'
+valInterval: -1 #-1, val at the end of epoch
+rec_pretrained: './pretrained/ASTER.pth.tar'
+moran_pretrained: './pretrained/MORAN.pth'
+crnn_pretrained: './pretrained/CRNN.pth'
+
+norm_mean: [0.485, 0.456, 0.406]
+norm_std: [0.229, 0.224, 0.225]
+
+CONVERT:
+  n_convert: 10
