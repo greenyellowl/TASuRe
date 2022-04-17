@@ -54,7 +54,6 @@ class TextSR(base.TextBase):
             pbar = tqdm.tqdm((enumerate(train_loader)), leave = False, desc='batch', total=len(train_loader))
             for j, data in pbar:
             # for j, data in tqdm.tqdm((enumerate(train_loader)), leave = False, desc='batch'):
-                a = j + 1
                 model.train()
                 for p in model.parameters():
                     assert p.requires_grad == True
@@ -105,15 +104,20 @@ class TextSR(base.TextBase):
 
                 optimizer.zero_grad()
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 0.25)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 5)
                 optimizer.step()
                 scheduler.step(loss)
+
+                lr = []
+                for ind, param_group in enumerate(optimizer.param_groups):
+                    lr.append(param_group['lr'])
 
                 if iters % cfg.displayInterval == 0:
                     info_string = f"total_loss={float(loss_im.data):03.3f} | " \
                                   f"loss={loss:03.3f} | " \
                                   f"mse_loss={mse_loss:03.3f} | " \
-                                  f"ctc_loss={ctc_loss:03.3f} | "
+                                  f"ctc_loss={ctc_loss:03.3f} | " \
+                                  f"learning rate={lr[0]:f}"
 
                     pbar.set_description(info_string)
                 # if iters % cfg.displayInterval == 0:

@@ -168,7 +168,7 @@ class lmdbDataset(Dataset):
         except IOError or len(word) > self.max_len:
             return self[index + 1]
 
-        label_str = self.str_filt(word, self.voc_type)
+        # label_str = self.str_filt(word, self.voc_type)
         # img.show()
         img_np = np.array(img)
         # img_np_ma = np.moveaxis(img_np, -1, 0)
@@ -182,7 +182,7 @@ class lmdbDataset(Dataset):
         # plt.imshow(torch.moveaxis(img_un,0,2))
         # plt.show()
 
-        return image_hr['image'], image_lr['image'], label_str, self.dataset_name
+        return image_hr['image'], image_lr['image'], word, self.dataset_name
 
     @staticmethod
     def str_filt(str_, voc_type):
