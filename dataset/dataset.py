@@ -55,7 +55,7 @@ class MyDataset():
         # Загрузка датасета
         if self.isTextZoom:
             imgs_dir_path = self.datasets_folder_path + self.data_dir
-            train_dataset = lmdbDataset(root=imgs_dir_path, transforms = transforms)
+            train_dataset = lmdbDataset(root=imgs_dir_path, transforms = transforms, max_len=self.cfg.max_len)
         else:
             annotations_file_path = self.datasets_folder_path + self.data_annotations_file
             imgs_dir_path = self.datasets_folder_path + self.data_dir
@@ -102,7 +102,7 @@ class ICDARImageDataset(Dataset):
 
 
 class lmdbDataset(Dataset):
-    def __init__(self, root=None, voc_type='upper', max_len=31, test=False, val=False, transforms=None):
+    def __init__(self, root=None, voc_type='upper', max_len=32, test=False, val=False, transforms=None):
         super(lmdbDataset, self).__init__()
 
         self.root = root
@@ -123,7 +123,7 @@ class lmdbDataset(Dataset):
         self.env = lmdb.open(
             self.root,
             max_readers=1,
-            readonly=True,
+            readonly=False,
             lock=False,
             readahead=False,
             meminit=False)
@@ -160,6 +160,8 @@ class lmdbDataset(Dataset):
 
         label_key = b'label-%09d' % index
         word = str(txn.get(label_key).decode())
+        if len(word)>32:
+            return self[index + 1]
 
         try:
             img = self.buf2PIL(txn, b'image_hr-%09d' % index, 'RGB')

@@ -12,35 +12,30 @@ class Wangji(nn.Module):
     def __init__(self, cfg, scale_factor, in_chans = 3):
         super(Wangji, self).__init__()
 
-        if cfg.convNext_type == 'T':
+        self.cfg = cfg
+        
+        if self.cfg.convNext_type == 'T':
             depths = [3, 3, 9]
             dims = [96, 192, 384]
-        elif cfg.convNext_type == 'S':
+            finalConv_in_channels = 3
+        elif self.cfg.convNext_type == 'S':
             depths = [3, 3, 27]
             dims = [96, 192, 384]
-        # elif cfg.convNext_type == 'B': # Не сработает, т.к. нужно, чтобы dims[2] делилось на 3.
+            finalConv_in_channels = 3
+        # elif self.cfg.convNext_type == 'B': # Не сработает, т.к. нужно, чтобы dims[2] делилось на 3.
         #     depths = [3, 3, 27]
         #     dims = [128, 256, 512]
-        elif cfg.convNext_type == 'L':
+        elif self.cfg.convNext_type == 'L':
             depths = [3, 3, 27]
             dims = [192, 384, 768]
-        # elif cfg.convNext_type == 'XL': # Не сработает, т.к. нужно, чтобы dims[2] делилось на 3.
+            finalConv_in_channels = 6
+        # elif self.cfg.convNext_type == 'XL': # Не сработает, т.к. нужно, чтобы dims[2] делилось на 3.
         #     depths = [3, 3, 27]
         #     dims = [256, 512, 1024]
         else:
             depths = [3, 3, 9]
-            dims = [96, 192, 384]
-
-        #LongSkip
-
-        self.convLS0 = nn.Conv2d(in_channels = in_chans, out_channels = 32, kernel_size = 2, stride=[2,3], dilation=[1,3])
-        self.convLS1 = nn.Conv2d(in_channels = 32, out_channels = (dims[2] * scale_factor - dims[2]), kernel_size = [2,3], stride=[4,2], dilation=3)
-
-        #Blue Branch
-
-        self.convBlue1 = nn.Conv2d(in_channels = dims[0], out_channels = dims[1], kernel_size = 2, padding=[0,1], stride=2, dilation=[1,3])
-        self.convBlue2 = nn.Conv2d(in_channels=dims[1], out_channels=dims[2], kernel_size=2, padding=[0, 1], stride=2, dilation=[1, 3])
-
+            dims = [96, 192, 384]        
+        
         #ConvNext (Red Branch) https://paperswithcode.com/paper/a-convnet-for-the-2020s
 
         drop_path_rate = 0.
@@ -69,88 +64,113 @@ class Wangji(nn.Module):
             self.convnext_blocks.append(stage)
             cur += depths[i]
 
-        #PreProcessing Branch
+        
+        if self.cfg.enable_sr:
+            #LongSkip
 
-        self.convPreProc00 = nn.Conv2d(in_channels = dims[0], out_channels = 32, kernel_size = 3, padding=1, stride=2)
-        self.convPreProc01 = nn.Conv2d(in_channels=32, out_channels=int(dims[2]/3), kernel_size=3, padding=1, stride=2)
-        self.convPreProc1 = nn.Conv2d(in_channels=dims[1], out_channels=int(dims[2]/3), kernel_size=3, padding=1, stride=2)
-        self.convPreProc2 = nn.Conv2d(in_channels=dims[2], out_channels=int(dims[2]/3), kernel_size=1)
+            self.convLS0 = nn.Conv2d(in_channels = in_chans, out_channels = 32, kernel_size = 2, stride=[2,3], dilation=[1,3])
+            self.convLS1 = nn.Conv2d(in_channels = 32, out_channels = (dims[2] * scale_factor - dims[2]), kernel_size = [2,3], stride=[4,2], dilation=3)
 
-        # correlation matrix/Attation from HAN https://paperswithcode.com/paper/single-image-super-resolution-via-a-holistic
+            #Blue Branch
 
-        self.LAM = LAM_Module(dims[2])
+            self.convBlue1 = nn.Conv2d(in_channels = dims[0], out_channels = dims[1], kernel_size = 2, padding=[0,1], stride=2, dilation=[1,3])
+            self.convBlue2 = nn.Conv2d(in_channels=dims[1], out_channels=dims[2], kernel_size=2, padding=[0, 1], stride=2, dilation=[1, 3])
 
-        # Upsampler from HAN https://paperswithcode.com/paper/a-convnet-for-the-2020s
+            # Upsampler from HAN https://paperswithcode.com/paper/a-convnet-for-the-2020s
 
-        # conv_HAN = default_conv_form_HAN
-        # n_feats = dims[2] * scale_factor
-        # n_colors = 3
-        # ks = 3
-        # upsample = [Upsampler(conv_HAN, scale_factor, n_feats, act=False),
-        #             conv_HAN(n_feats, n_colors, ks)]
-        #
-        # self.upsample = nn.Sequential(*upsample)
-        self.upsample = sub_pixel(scale_factor)
-        self.finalConv = nn.Conv2d(in_channels=3, out_channels=3, kernel_size=3, padding=1, bias=True)
+            # conv_HAN = default_conv_form_HAN
+            # n_feats = dims[2] * scale_factor
+            # n_colors = 3
+            # ks = 3
+            # upsample = [Upsampler(conv_HAN, scale_factor, n_feats, act=False),
+            #             conv_HAN(n_feats, n_colors, ks)]
+            #
+            # self.upsample = nn.Sequential(*upsample)
+            self.upsample = sub_pixel(scale_factor)
+            
+            self.finalConv = nn.Conv2d(in_channels=finalConv_in_channels, out_channels=3, kernel_size=3, padding=1, bias=True)
+        
+        
+        if self.cfg.enable_rec:
+            #PreProcessing Branch
 
-        # self.TGT_VOCAB_SIZE = 88 # большие и маленькие английские буквы + 10 цифр + 25 символов + пробел
-        # self.BOS, self.EOS, self.PAD, self.BLANK = self.TGT_VOCAB_SIZE+1, self.TGT_VOCAB_SIZE+2, self.TGT_VOCAB_SIZE+3, 0
-        self.FULL_VOCAB_SIZE = cfg.FULL_VOCAB_SIZE
+            # self.convPreProc00 = nn.Conv2d(in_channels = dims[0], out_channels = 32, kernel_size = 3, padding=1, stride=2)
+            self.convPreProc0 = nn.Conv2d(in_channels=dims[0], out_channels=int(dims[2]/3), kernel_size=1)
+            # Нужно upscale Nearest Neighbors или Bi-Linear Interpolation или Transposed Convolutions
+            self.convPreProc1 = nn.ConvTranspose2d(in_channels=dims[1], out_channels=int(dims[2]/3), kernel_size=2, stride=2)
+            self.convPreProc2 = nn.ConvTranspose2d(in_channels=dims[2], out_channels=int(dims[2]/3), kernel_size=4, stride=4)
 
-        self.linear = nn.Linear(dims[2], self.FULL_VOCAB_SIZE)
+            # correlation matrix/Attation from HAN https://paperswithcode.com/paper/single-image-super-resolution-via-a-holistic
 
-        # LSTM
+            self.LAM = LAM_Module(dims[2])
 
-        input_size = cfg.FULL_VOCAB_SIZE
-        hidden_size = input_size
-        tagset_size = self.FULL_VOCAB_SIZE
+            # self.TGT_VOCAB_SIZE = 88 # большие и маленькие английские буквы + 10 цифр + 25 символов + пробел
+            # self.BOS, self.EOS, self.PAD, self.BLANK = self.TGT_VOCAB_SIZE+1, self.TGT_VOCAB_SIZE+2, self.TGT_VOCAB_SIZE+3, 0
+            self.FULL_VOCAB_SIZE = cfg.FULL_VOCAB_SIZE
 
-        self.LSTM = LSTMTagger(input_size, hidden_size, tagset_size)
+            self.linear = nn.Linear((16*dims[2]), self.FULL_VOCAB_SIZE)
 
+            # LSTM
+
+            input_size = cfg.FULL_VOCAB_SIZE
+            hidden_size = input_size
+            tagset_size = self.FULL_VOCAB_SIZE
+
+            self.LSTM = LSTMTagger(input_size, hidden_size, tagset_size)
+                
 
     def forward(self, x):
         img = x
 
-        y_green_1 = self.convLS0(x)
-        y_green_2 = self.convLS1(y_green_1)
+        # Red ConvNext Branch
 
         y_downsample0 = self.convnext_downsample_layers[0](x)
         y_block0 = self.convnext_blocks[0](y_downsample0)
-        y_convPreProc00 = self.convPreProc00(y_block0)
-        y_convPreProc01 = self.convPreProc01(y_convPreProc00)
 
-        y_blue_conv1 = self.convBlue1(y_block0)
         y_downsample1 = self.convnext_downsample_layers[1](y_block0)
         y_block1 = self.convnext_blocks[1](y_downsample1)
-        y_convPreProc1 = self.convPreProc1(y_block1)
-        y_summ1 = y_blue_conv1 + y_block1
 
-        y_blue_conv2 = self.convBlue2(y_summ1)
         y_downsample2 = self.convnext_downsample_layers[2](y_block1)
         y_block2 = self.convnext_blocks[2](y_downsample2)
-        y_convPreProc2 = self.convPreProc2(y_block2)
-        y_summ2 = y_blue_conv2 + y_block2
+        
+        y_sr = None
+        if self.cfg.enable_sr:
+            y_green_1 = self.convLS0(x)
+            y_green_2 = self.convLS1(y_green_1)
 
-        y_concat1 = torch.cat([y_summ2, y_green_2], 1)
-        # y_concat2 = torch.cat([y_convPreProc01, y_convPreProc1, y_convPreProc2], 1)
-        y_concat2 = torch.stack([y_convPreProc01, y_convPreProc1, y_convPreProc2], 1)
+            y_blue_conv1 = self.convBlue1(y_block0)
+            y_summ1 = y_blue_conv1 + y_block1
+            
+            y_blue_conv2 = self.convBlue2(y_summ1)
+            y_summ2 = y_blue_conv2 + y_block2
 
-        y_upsample = self.upsample(y_concat1)
-        y_sr = self.finalConv(y_upsample)
+            y_concat1 = torch.cat([y_summ2, y_green_2], 1)
 
-        y_attention = self.LAM(y_concat2)
+            y_upsample = self.upsample(y_concat1)
+            y_sr = self.finalConv(y_upsample)
 
-        y_summ3 = y_block2 + y_attention
-        # y_summ3 = y_block2
-        # y_summ3 = y_attention
 
-        y_flat = rearrange(y_summ3, 'b c h w -> b (h w) c')
+        tag_scores = None
+        if self.cfg.enable_rec:
+            y_convPreProc0 = self.convPreProc0(y_block0)
+            y_convPreProc1 = self.convPreProc1(y_block1)
+            y_convPreProc2 = self.convPreProc2(y_block2)
 
-        y_lin = self.linear(y_flat)
+            y_concat2 = torch.stack([y_convPreProc0, y_convPreProc1, y_convPreProc2], 1)
 
-        tag_scores = self.LSTM(y_lin)
+            y_attention = self.LAM(y_concat2)
 
-        tag_scores = rearrange(tag_scores, 'n t c -> t n c') # для стс лосса
+            # y_summ3 = y_block2 + y_attention
+            # y_summ3 = y_block2
+            y_summ3 = y_attention
+
+            y_flat = rearrange(y_summ3, 'b c h w -> b w (h c)')
+
+            y_lin = self.linear(y_flat)
+
+            tag_scores = self.LSTM(y_lin)
+
+            tag_scores = rearrange(tag_scores, 'n t c -> t n c') # для стс лосса
 
         return y_sr, tag_scores
 

@@ -30,7 +30,7 @@ class WangjiLoss(nn.Module):
         blank_digits_list.append(str(0))
         blank_digits_dict[str(0)] = str(10)
         
-        self.FULL_VOCAB = blank_digits_dict | self.LETTERS | self.SYMBOLS | {"BOS": self.cfg.BOS, "EOS": self.cfg.EOS, "PAD": self.cfg.PAD}
+        self.FULL_VOCAB = blank_digits_dict | self.LETTERS | self.SYMBOLS | {"BOS": str(self.cfg.BOS), "EOS": str(self.cfg.EOS), "PAD": str(self.cfg.PAD)}
         
         self.FULL_VOCAB_LIST = blank_digits_list + list(self.LETTERS.keys()) + list(self.SYMBOLS.keys()) + ['bos', 'eos', 'pad']
 
@@ -46,44 +46,47 @@ class WangjiLoss(nn.Module):
 
     def forward(self, sr_img, tag_scores, hr_img, labels):
 
-        targets = torch.zeros(self.cfg.batch_size, 32) + self.cfg.PAD
-        # label = label.upper()
+        ctc_loss = 0
+        if self.cfg.enable_rec:
+            targets = torch.zeros(self.cfg.batch_size, 32) + self.cfg.PAD
+            # label = label.upper()
 
-        for count, label in enumerate(labels):
-            target = []
-            for character in label:
-                # print(character)
-                # if character == ' ':
-                #     target.append(int(self.SYMBOLS['"']) + 1)
-                if character.isdigit():
-                    if int(character) == 0:
-                        target.append(10)
-                    else:
-                        target.append(int(character))
-                elif character in self.LETTERS:
-                    target.append(int(self.LETTERS[character]))
-                elif character in self.SYMBOLS:
-                    target.append(int(self.SYMBOLS[character]))
+            for count, label in enumerate(labels):
+                target = []
+                for character in label:
+                    # print(character)
+                    # if character == ' ':
+                    #     target.append(int(self.SYMBOLS['"']) + 1)
+                    if character.isdigit():
+                        if int(character) == 0:
+                            target.append(10)
+                        else:
+                            target.append(int(character))
+                    elif character in self.LETTERS:
+                        target.append(int(self.LETTERS[character]))
+                    elif character in self.SYMBOLS:
+                        target.append(int(self.SYMBOLS[character]))
 
-            padding = torch.zeros(32 - len(target))+self.cfg.PAD
-            targets[count] = torch.hstack((torch.tensor(target), padding))
+                padding = torch.zeros(32 - len(target))+self.cfg.PAD
+                targets[count] = torch.hstack((torch.tensor(target), padding))
 
-        input_lengths = torch.full(size=(self.cfg.batch_size,), fill_value=32, dtype=torch.long)
+            input_lengths = torch.full(size=(self.cfg.batch_size,), fill_value=32, dtype=torch.long)
 
-        target_lengths = torch.zeros(self.cfg.batch_size, dtype=torch.long)
+            target_lengths = torch.zeros(self.cfg.batch_size, dtype=torch.long)
 
-        for i in range(len(labels)):
-            target_lengths[i] = len(labels[i])
+            for i in range(len(labels)):
+                target_lengths[i] = len(labels[i])
 
-        # target_lengths = torch.zeros(self.cfg.batch_size)+32
+            # target_lengths = torch.zeros(self.cfg.batch_size)+32
 
-        mse_loss = self.mse_loss(sr_img, hr_img)
-        ctc_loss = self.ctc_loss(tag_scores, targets, input_lengths, target_lengths)
+            ctc_loss = self.ctc_loss(tag_scores, targets, input_lengths, target_lengths)
+            strings = self.ctc_decode(tag_scores)
 
-        loss = mse_loss + ctc_loss * self.cfg.lambda_ctc
+        mse_loss = 0
+        if self.cfg.enable_sr:
+            mse_loss = self.mse_loss(sr_img, hr_img)
 
-
-        a =self.ctc_decode(tag_scores)
+        loss = mse_loss * self.cfg.lambda_mse + ctc_loss * self.cfg.lambda_ctc
 
 
         return loss, mse_loss, ctc_loss
@@ -105,11 +108,14 @@ class WangjiLoss(nn.Module):
         )
         tag_scores = rearrange(tag_scores, 't b l -> b t l') # N_TIMESTEPS x BATCHSIZE x N_LABELS -> BATCHSIZE x N_TIMESTEPS x N_LABELS
         beam_results, beam_scores, timesteps, out_lens = decoder.decode(tag_scores)
-        string = ''
-        dig_string = beam_results[0][0][:out_lens[0][0]]
-        for dig in dig_string:
-            dig2 = int(dig)
-            string += list(self.FULL_VOCAB.keys())[list(self.FULL_VOCAB.values()).index(str(dig2))]
-            # string += self.FULL_VOCAB.keys()[self.FULL_VOCAB.values().index(str(dig2))]
-        aaaa = 'a'
-        return "aaa"
+        strings = []
+        for i in range(self.cfg.batch_size):
+            dig_string = beam_results[i][0][:out_lens[i][0]]
+            string = ''
+            for dig in dig_string:
+                string += list(self.FULL_VOCAB.keys())[list(self.FULL_VOCAB.values()).index(str(int(dig)))]
+            
+            strings.append(string)
+        
+        temp = 'a'
+        return strings

@@ -1,5 +1,6 @@
+from this import d
 import torch
-from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.optim.lr_scheduler import ReduceLROnPlateau, ExponentialLR
 
 from interfaces import base
 import copy
@@ -16,6 +17,9 @@ from utils.util import str_filt
 
 import matplotlib.pyplot as plt
 
+# from warmup_scheduler import GradualWarmupScheduler
+from pytorch_warmup_scheduler import WarmupScheduler
+
 times = 0
 easy_test_times = 0
 medium_test_times = 0
@@ -26,6 +30,20 @@ class TextSR(base.TextBase):
     def train(self):
         print('train started')
         cfg = self.cfg
+        config_txt = f"""scale_factor: {cfg.scale_factor}  \n
+                         width: {cfg.width}  \n
+                         height: {cfg.height}  \n
+                         convNext_type: {cfg.convNext_type}  \n
+                         enable_sr: {cfg.enable_sr}  \n
+                         enable_rec: {cfg.enable_rec}  \n
+                         batch_size: {cfg.batch_size}  \n
+                         epochs: {cfg.epochs}  \n
+                         workers: {cfg.workers}  \n
+                         lr: {cfg.lr}  \n
+                         lambda_mse: {cfg.lambda_mse}  \n
+                         lambda_ctc: {cfg.lambda_ctc}"""
+        self.writer.add_text('config', config_txt)
+
         train_dataset, train_loader = self.get_train_data()
         test_val_dataset_list, test_val_loader_list = self.get_test_val_data()
         model_dict = self.generator_init()
@@ -33,7 +51,11 @@ class TextSR(base.TextBase):
 
         aster, aster_info = self.CRNN_init()
         optimizer = self.optimizer_init(model)
-        scheduler = ReduceLROnPlateau(optimizer, 'min')
+        scheduler_plateau = ReduceLROnPlateau(optimizer, 'min', patience=10, cooldown=10, min_lr=1e-7)
+        # torch_lr_scheduler = ExponentialLR(optimizer=optimizer, gamma=0.5)
+        # scheduler = GradualWarmupScheduler(optimizer, multiplier=1, total_epoch=10, after_scheduler=torch_lr_scheduler)
+        scheduler_warmup = WarmupScheduler(optimizer, warmup_epoch=10)
+
 
         # best_history_acc = dict(
         #     zip([val_loader_dir.split('/')[-1] for val_loader_dir in self.cfg.test_val_data_dir],
@@ -69,33 +91,15 @@ class TextSR(base.TextBase):
                 # plt.imshow(torch.moveaxis(img_un.cpu(), 0, 2))
                 # plt.show()
 
-                # if torch.sum(torch.isnan(images_hr))>0 or torch.sum(torch.isnan(images_lr))>0:
-                #     print('j:',j)
-                #     raise Exception('j:',j)
-
                 images_sr, tag_scores = model(images_lr)
 
                 loss, mse_loss, ctc_loss = image_crit(images_sr, tag_scores, images_hr, label_strs)
 
-                # if j>=499:
-                #     # index = random.randint(0, images_lr.shape[0] - 1)
-                #     dataset_name = train_loader
-                #     for index in range(images_lr.shape[0]):
-                #         self.writer.add_image(f'debug/{dataset_name[index]}/lr_image/j {j}/index {index}',
-                #                               torch.clamp(((images_lr[index, ...] + 1) / 2 * 255).long(), min=0, max=255),
-                #                               easy_test_times)
-                #         self.writer.add_image(f'debug/{dataset_name[index]}/sr_image/j {j}/index {index}',
-                #                               torch.clamp(((images_sr[index, ...] + 1) / 2 * 255).long(), min=0, max=255),
-                #                               easy_test_times)
-                #         self.writer.add_image(f'debug/{dataset_name[index]}/hr_image/j {j}/index {index}',
-                #                               torch.clamp(((images_hr[index, ...] + 1) / 2 * 255).long(), min=0, max=255),
-                #                               easy_test_times)
-
-                loss_im = loss * 100
-                # loss_im = loss
+                total_loss = loss * 100
+                # total_loss = loss
 
                 global times
-                self.writer.add_scalar('loss/total_loss', loss_im.data, times)
+                # self.writer.add_scalar('loss/total_loss', total_loss.data, times)
                 self.writer.add_scalar('loss/loss', loss, times)
                 self.writer.add_scalar('loss/mse_loss', mse_loss, times)
                 self.writer.add_scalar('loss/ctc_loss', ctc_loss, times)
@@ -106,38 +110,23 @@ class TextSR(base.TextBase):
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 5)
                 optimizer.step()
-                scheduler.step(loss)
+                scheduler_plateau.step(loss)
+                scheduler_warmup.step()
 
                 lr = []
                 for ind, param_group in enumerate(optimizer.param_groups):
-                    lr.append(param_group['lr'])
+                    lr = param_group['lr']
+                    lr = scheduler_warmup.get_last_lr()[0]
+                    self.writer.add_scalar('loss/lr', lr, times)
+                    break
 
                 if iters % cfg.displayInterval == 0:
-                    info_string = f"total_loss={float(loss_im.data):03.3f} | " \
-                                  f"loss={loss:03.3f} | " \
-                                  f"mse_loss={mse_loss:03.3f} | " \
-                                  f"ctc_loss={ctc_loss:03.3f} | " \
-                                  f"learning rate={lr[0]:f}"
+                    info_string = f"loss={float(loss.data):03.3f} | " \
+                                  f"mse_loss={float(mse_loss):03.3f} | " \
+                                  f"ctc_loss={float(ctc_loss):03.3f} | " \
+                                  f"learning rate={lr:.20f}"
 
                     pbar.set_description(info_string)
-                # if iters % cfg.displayInterval == 0:
-                #     print('[{}]\t'
-                #           'Epoch: [{}]\t'
-                #           'train_loader: [{}/{}]\t'
-                #           # 'vis_dir={:s}\t'
-                #           'total_loss {:.3f} \t'
-                #           'loss {:.3f} \t'
-                #           'mse_loss {:.3f} \t'
-                #           'ctc_loss {:.3f} \t'
-                #           .format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                #                   epoch,
-                #                   j + 1, len(train_loader),
-                #                   # self.vis_dir,
-                #                   float(loss_im.data),
-                #                   loss,
-                #                   mse_loss,
-                #                   ctc_loss,
-                #                   ))
 
                 if j == len(train_loader)-1:
                 # if iters % cfg.valInterval == 0:

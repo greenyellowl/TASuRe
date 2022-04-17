@@ -50,17 +50,19 @@ ttest_val_textzoom_data_dir: [
 scale_factor: 2
 width: 64
 height: 32
-convNext_type: 'S' # T, S, L
+convNext_type: 'L' # T, S, L
 
 
 # TRAIN PROCCES
 
-batch_size: 73
+enable_sr: True
+enable_rec: False
+batch_size: 256
 epochs: 1000
 cuda: True
 ngpu: 1
 workers: 0
-lr: 0.01
+lr: 0.001
 
 displayInterval: 10 #display loss
 
@@ -74,7 +76,6 @@ saveInterval: 200
 adadelta: False
 adam: True
 beta1: 0.5
-max_len: 100
 keep_ratio: False
 max_word_len: 24
 
@@ -84,11 +85,13 @@ EOS: 90
 PAD: 91
 BLANK: 0
 FULL_VOCAB_SIZE: 92
+max_len: 32
 
 # LOSS
 
-lambda_ctc: 0
-#lambda_ctc: 0.01
+# lambda_ctc: 0
+lambda_mse: 1
+lambda_ctc: 0.01
 
 n_vis: 10
 vis_dir: 'demo'
