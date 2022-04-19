@@ -15,6 +15,7 @@ from utils import util, ssim_psnr, utils_moran, utils_crnn
 import os
 import logging
 from datetime import datetime
+from string import ascii_uppercase, ascii_lowercase
 
 
 class TextBase(object):
@@ -35,6 +36,27 @@ class TextBase(object):
         self.resume = args.resume if args.resume is not None else config.resume
         self.logging = logging
         self.scale_factor = self.cfg.scale_factor
+
+
+        self.LETTERS = {letter: str(index) for index, letter in enumerate(ascii_uppercase + ascii_lowercase, start=11)}
+        SYMBOLS = ['+', '|', '[', '%', ':', ',', '>', '@', '$', ')', '©', '-', ';', '!', '&', '?', '.',
+                ']', '/', '#', '=', '‰', '(', '\'', '\"', ' ']
+
+        self.SYMBOLS = {symbols: str(index) for index, symbols in enumerate(SYMBOLS, start=int(self.LETTERS["z"]) + 1)}
+
+        blank_digits_list = []
+        blank_digits_dict = {'BLANK': '0'}
+        blank_digits_list.append("_")
+        for i in range (1,10):
+            blank_digits_list.append(str(i))
+            blank_digits_dict[str(i)] = str(i)
+        blank_digits_list.append(str(0))
+        blank_digits_dict[str(0)] = str(10)
+        
+        self.FULL_VOCAB = blank_digits_dict | self.LETTERS | self.SYMBOLS | {"BOS": str(self.cfg.BOS), "EOS": str(self.cfg.EOS), "PAD": str(self.cfg.PAD)}
+        
+        self.FULL_VOCAB_LIST = blank_digits_list + list(self.LETTERS.keys()) + list(self.SYMBOLS.keys()) + ['bos', 'eos', 'pad']
+
 
 
     def get_train_data(self):
@@ -67,12 +89,6 @@ class TextBase(object):
         else:
             raise TypeError('check trainRoot')
 
-        # train_loader = torch.utils.data.DataLoader(
-        #     train_dataset, batch_size=self.batch_size,
-        #     shuffle=False, num_workers=int(0),
-        #     collate_fn=self.align_collate(imgH=cfg.height, imgW=cfg.width, down_sample_scale=cfg.down_sample_scale,
-        #                                   mask=self.mask),
-        #     drop_last=True)
         train_loader = torch.utils.data.DataLoader(
             train_dataset, batch_size=self.batch_size,
             shuffle=True, num_workers=int(cfg.workers),
@@ -101,14 +117,6 @@ class TextBase(object):
                                       ).load_dataset()
                 dataset_list.append(test_val_dataset) # создаётся объект класса loadDataset
 
-                # test_val_loader = torch.utils.data.DataLoader(
-                #     test_val_dataset, batch_size=self.batch_size,
-                #     shuffle=True, num_workers=int(cfg.workers),
-                #     collate_fn=self.align_collate(imgH=cfg.height, imgW=cfg.width,
-                #                                   down_sample_scale=cfg.down_sample_scale,
-                #                                   mask=self.mask),
-                #                                   drop_last=True)
-
                 test_val_loader = torch.utils.data.DataLoader(
                     test_val_dataset, batch_size=self.batch_size,
                     shuffle=False, num_workers=int(cfg.workers),drop_last=True, pin_memory=True)
@@ -125,19 +133,10 @@ class TextBase(object):
                                           ).load_dataset()
                     dataset_list.append(test_val_dataset) # создаётся объект класса loadDataset
 
-                    # test_val_loader = torch.utils.data.DataLoader(
-                    #     test_val_dataset, batch_size=self.batch_size,
-                    #     shuffle=True, num_workers=int(0),
-                    #     collate_fn=self.align_collate(imgH=cfg.height, imgW=cfg.width,
-                    #                                   down_sample_scale=cfg.down_sample_scale,
-                    #                                   mask=self.mask),
-                    #     drop_last=True)
                     test_val_loader = torch.utils.data.DataLoader(
                         test_val_dataset, batch_size=self.batch_size,
                         shuffle=False, num_workers=int(cfg.workers),drop_last=True, pin_memory=True)
                     loader_list.append(test_val_loader)
-
-            # test_val_dataset = dataset.ConcatDataset(dataset_list)
         else:
             raise TypeError('check trainRoot')
 
@@ -189,7 +188,7 @@ class TextBase(object):
             if self.resume != '':
                 print('loading pre-trained model from %s ' % self.resume)
                 if self.cfg.ngpu == 1:
-                    model.load_state_dict(torch.load(self.resume)['state_dict_G'])
+                    model.load_state_dict(torch.load(self.resume)['state_dict_G'], strict=False)
                 else:
                     model.load_state_dict(
                         {'module.' + k: v for k, v in torch.load(self.resume)['state_dict_G'].items()})

@@ -65,7 +65,7 @@ class Wangji(nn.Module):
             cur += depths[i]
 
         
-        if self.cfg.enable_sr:
+        if self.cfg.enable_sr or self.cfg.train_after_sr:
             #LongSkip
 
             self.convLS0 = nn.Conv2d(in_channels = in_chans, out_channels = 32, kernel_size = 2, stride=[2,3], dilation=[1,3])
@@ -89,6 +89,14 @@ class Wangji(nn.Module):
             self.upsample = sub_pixel(scale_factor)
             
             self.finalConv = nn.Conv2d(in_channels=finalConv_in_channels, out_channels=3, kernel_size=3, padding=1, bias=True)
+
+            if self.cfg.train_after_sr:
+                self.convLS0.weight.requires_grad = False
+                self.convLS1.weight.requires_grad = False
+                self.convBlue1.weight.requires_grad = False
+                self.convBlue2.weight.requires_grad = False
+                self.convLS0.weight.requires_grad = False
+                self.finalConv.requires_grad = False
         
         
         if self.cfg.enable_rec:
@@ -133,21 +141,21 @@ class Wangji(nn.Module):
         y_downsample2 = self.convnext_downsample_layers[2](y_block1)
         y_block2 = self.convnext_blocks[2](y_downsample2)
         
-        y_sr = None
-        if self.cfg.enable_sr:
-            y_green_1 = self.convLS0(x)
-            y_green_2 = self.convLS1(y_green_1)
+        # y_sr = None
+        # if self.cfg.enable_sr:
+        y_green_1 = self.convLS0(x)
+        y_green_2 = self.convLS1(y_green_1)
 
-            y_blue_conv1 = self.convBlue1(y_block0)
-            y_summ1 = y_blue_conv1 + y_block1
-            
-            y_blue_conv2 = self.convBlue2(y_summ1)
-            y_summ2 = y_blue_conv2 + y_block2
+        y_blue_conv1 = self.convBlue1(y_block0)
+        y_summ1 = y_blue_conv1 + y_block1
+        
+        y_blue_conv2 = self.convBlue2(y_summ1)
+        y_summ2 = y_blue_conv2 + y_block2
 
-            y_concat1 = torch.cat([y_summ2, y_green_2], 1)
+        y_concat1 = torch.cat([y_summ2, y_green_2], 1)
 
-            y_upsample = self.upsample(y_concat1)
-            y_sr = self.finalConv(y_upsample)
+        y_upsample = self.upsample(y_concat1)
+        y_sr = self.finalConv(y_upsample)
 
 
         tag_scores = None
@@ -381,7 +389,7 @@ class LSTMTagger(nn.Module):
         # print("lstm_out:",lstm_out)
         hidden2tag = self.hidden2tag(lstm_out) #МОЖЕТ ВЕРНУТЬ
         # print("tag_space:",tag_space)
-        tag_scores = F.log_softmax(lstm_out, dim=1) #hidden2tag
+        tag_scores = F.log_softmax(lstm_out, dim=2) #hidden2tag
         # print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
         return tag_scores
 

@@ -56,8 +56,9 @@ convNext_type: 'L' # T, S, L
 # TRAIN PROCCES
 
 enable_sr: True
-enable_rec: False
-batch_size: 256
+enable_rec: True
+train_after_sr: False
+batch_size: 270
 epochs: 1000
 cuda: True
 ngpu: 1
@@ -66,6 +67,7 @@ lr: 0.001
 
 displayInterval: 10 #display loss
 
+# resume: '/home/helen/code/TextSR/checkpoint/log_2022-04-17_18_45_31.072907/model_best.pth'
 resume: ''
 
 manualSeed: 1234
@@ -91,7 +93,7 @@ max_len: 32
 
 # lambda_ctc: 0
 lambda_mse: 1
-lambda_ctc: 0.01
+lambda_ctc: 1
 
 n_vis: 10
 vis_dir: 'demo'
@@ -102,6 +104,9 @@ crnn_pretrained: './pretrained/CRNN.pth'
 
 norm_mean: [0.485, 0.456, 0.406]
 norm_std: [0.229, 0.224, 0.225]
+
+eval: False
+acc_best_model: 'ctc' # ctc, crnn. По какому распознавателю сохранять лучшую модель
 
 CONVERT:
   n_convert: 10

@@ -80,7 +80,6 @@ class WangjiLoss(nn.Module):
             # target_lengths = torch.zeros(self.cfg.batch_size)+32
 
             ctc_loss = self.ctc_loss(tag_scores, targets, input_lengths, target_lengths)
-            strings = self.ctc_decode(tag_scores)
 
         mse_loss = 0
         if self.cfg.enable_sr:
@@ -88,34 +87,9 @@ class WangjiLoss(nn.Module):
 
         loss = mse_loss * self.cfg.lambda_mse + ctc_loss * self.cfg.lambda_ctc
 
-
         return loss, mse_loss, ctc_loss
 
-    def ctc_decode(self, tag_scores):
-        labels = self.FULL_VOCAB_LIST
-        num_processes = 1
-        decoder = CTCBeamDecoder(
-            labels,
-            model_path=None,
-            alpha=0,
-            beta=0,
-            cutoff_top_n=40,
-            cutoff_prob=1.0,
-            beam_width=100,
-            num_processes=num_processes,
-            blank_id=0,
-            log_probs_input=True
-        )
-        tag_scores = rearrange(tag_scores, 't b l -> b t l') # N_TIMESTEPS x BATCHSIZE x N_LABELS -> BATCHSIZE x N_TIMESTEPS x N_LABELS
-        beam_results, beam_scores, timesteps, out_lens = decoder.decode(tag_scores)
-        strings = []
-        for i in range(self.cfg.batch_size):
-            dig_string = beam_results[i][0][:out_lens[i][0]]
-            string = ''
-            for dig in dig_string:
-                string += list(self.FULL_VOCAB.keys())[list(self.FULL_VOCAB.values()).index(str(int(dig)))]
-            
-            strings.append(string)
-        
-        temp = 'a'
-        return strings
+    
+
+
+
