@@ -120,11 +120,14 @@ class Wangji(nn.Module):
 
             # LSTM
 
-            input_size = cfg.FULL_VOCAB_SIZE
+            input_size = 16*dims[2]
             hidden_size = input_size
-            tagset_size = self.FULL_VOCAB_SIZE
+            num_layers = 1
+            batch_first = True
+            bidirectional = False
+            tagset_size  = self.cfg.FULL_VOCAB_SIZE
 
-            self.LSTM = LSTMTagger(input_size, hidden_size, tagset_size)
+            self.LSTM = LSTMTagger(input_size, hidden_size, num_layers, batch_first, bidirectional, tagset_size)
                 
 
     def forward(self, x):
@@ -174,9 +177,11 @@ class Wangji(nn.Module):
 
             y_flat = rearrange(y_summ3, 'b c h w -> b w (h c)')
 
-            y_lin = self.linear(y_flat)
+            tag_scores = self.LSTM(y_flat)
 
-            tag_scores = self.LSTM(y_lin)
+            # y_linear = self.linear(lstm_out)
+
+            # tag_scores = F.log_softmax(y_linear, dim=2)
 
             tag_scores = rearrange(tag_scores, 'n t c -> t n c') # для стс лосса
 
@@ -366,7 +371,7 @@ class sub_pixel(nn.Module):
 
 class LSTMTagger(nn.Module):
 
-    def __init__(self, input_size, hidden_size, tagset_size):
+    def __init__(self, input_size, hidden_size, num_layers, batch_first, bidirectional, tagset_size):
         super(LSTMTagger, self).__init__()
         self.hidden_dim = hidden_size
 
@@ -374,7 +379,7 @@ class LSTMTagger(nn.Module):
 
         # The LSTM takes word embeddings as inputs, and outputs hidden states
         # with dimensionality hidden_dim.
-        self.lstm = nn.LSTM(input_size, hidden_size, num_layers = 1, batch_first=True, bidirectional=False)
+        self.lstm = nn.LSTM(input_size, hidden_size, num_layers = num_layers, batch_first=batch_first, bidirectional=bidirectional)
 
         # The linear layer that maps from hidden state space to tag space
         # self.hidden2tag = nn.Linear(hidden_size*2, tagset_size) #!!! hidden_size*2 из-за bidirectional=True. Уточни у Саши МОЖЕТ ВЕРНУТЬ
@@ -389,7 +394,7 @@ class LSTMTagger(nn.Module):
         # print("lstm_out:",lstm_out)
         hidden2tag = self.hidden2tag(lstm_out) #МОЖЕТ ВЕРНУТЬ
         # print("tag_space:",tag_space)
-        tag_scores = F.log_softmax(lstm_out, dim=2) #hidden2tag
+        tag_scores = F.log_softmax(hidden2tag, dim=2) #hidden2tag
         # print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
         return tag_scores
 

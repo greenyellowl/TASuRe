@@ -8,12 +8,14 @@ train_data_dir: [
   '/ICDAR 2015/ch4_training_word_images_gt',
   '/The Street View Text/svt2/img_train',
   '/The IIIT 5K-word/train',
+  # '/ICDAR OF',
 ]
 train_data_annotations_file: [
   '/ICDAR 2013/Challenge2_Training_Task3_Images_GT/gt.txt',
   '/ICDAR 2015/ch4_training_word_images_gt/gt.txt',
   '/The Street View Text/svt2/train.txt',
   '/The IIIT 5K-word/train.txt',
+  # '/ICDAR OF/gt.txt',
 ]
 
 train_data_textzoom_dir: [
@@ -21,7 +23,7 @@ train_data_textzoom_dir: [
   '/TextZoom/train2',
 ]
 
-ttrain_data_textzoom_dir: [
+tеrain_data_textzoom_dir: [
 
 ]
 
@@ -30,19 +32,21 @@ test_val_data_dir: [
   '/ICDAR 2015/ch4_test_word_images_gt',
   '/The Street View Text/svt2/img_test',
   '/The IIIT 5K-word/test',
+  # '/ICDAR OF',
 ]
 test_val_data_annotations_file: [
   '/ICDAR 2013/Challenge2_Test_Task3_Images/gt.txt',
   '/ICDAR 2015/ch4_test_word_images_gt/gt.txt',
   '/The Street View Text/svt2/test.txt',
   '/The IIIT 5K-word/test.txt',
+  # '/ICDAR OF/gt.txt',
 ]
 test_val_textzoom_data_dir: [
   '/TextZoom/test/hard',
   '/TextZoom/test/easy',
   '/TextZoom/test/medium',
 ]
-ttest_val_textzoom_data_dir: [
+tеest_val_textzoom_data_dir: [
 ]
 
 # MODEL
@@ -50,7 +54,7 @@ ttest_val_textzoom_data_dir: [
 scale_factor: 2
 width: 64
 height: 32
-convNext_type: 'L' # T, S, L
+convNext_type: 'S' # T, S, L
 
 
 # TRAIN PROCCES
@@ -58,7 +62,7 @@ convNext_type: 'L' # T, S, L
 enable_sr: True
 enable_rec: True
 train_after_sr: False
-batch_size: 270
+batch_size: 200
 epochs: 1000
 cuda: True
 ngpu: 1

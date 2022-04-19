@@ -33,7 +33,13 @@ class TextSR(base.TextBase):
     def train(self):
         print('train started')
         cfg = self.cfg
-        config_txt = f"""Ставлю линейный слой после LSTM  \n
+
+        scheduler_plateau_patience = 2
+        scheduler_plateau_cooldown = 5
+        scheduler_warmup_epoch = scheduler_plateau_cooldown
+        scheduler_plateau_factor = 0.05
+
+        config_txt = f"""Возможно номальное обучение  \n
                          scale_factor: {cfg.scale_factor}  \n
                          width: {cfg.width}  \n
                          height: {cfg.height}  \n
@@ -47,7 +53,11 @@ class TextSR(base.TextBase):
                          train_after_sr: {cfg.train_after_sr}  \n
                          lambda_mse: {cfg.lambda_mse}  \n
                          lambda_ctc: {cfg.lambda_ctc}  \n
-                         acc_best_model: {cfg.acc_best_model}"""
+                         acc_best_model: {cfg.acc_best_model}  \n
+                         scheduler_plateau_patience: {scheduler_plateau_patience}  \n
+                         scheduler_plateau_cooldown: {scheduler_plateau_cooldown}  \n
+                         scheduler_warmup_epoch: {scheduler_warmup_epoch}  \n
+                         scheduler_plateau_factor: {scheduler_plateau_factor}"""
         self.writer.add_text('config', config_txt)
 
         train_dataset, train_loader = self.get_train_data()
@@ -57,8 +67,11 @@ class TextSR(base.TextBase):
 
         aster, aster_info = self.CRNN_init()
         optimizer = self.optimizer_init(model)
-        scheduler_plateau = ReduceLROnPlateau(optimizer, 'min', patience=10, cooldown=10, min_lr=1e-7, verbose=True)
-        scheduler_warmup = WarmupScheduler(optimizer, warmup_epoch=10)
+
+        # scheduler
+
+        scheduler_plateau = ReduceLROnPlateau(optimizer, 'min', patience=scheduler_plateau_patience, cooldown=scheduler_plateau_cooldown, min_lr=1e-7, verbose=True, factor=scheduler_plateau_factor)
+        scheduler_warmup = WarmupScheduler(optimizer, warmup_epoch=scheduler_warmup_epoch)
 
 
         # best_history_acc = dict(
@@ -82,9 +95,10 @@ class TextSR(base.TextBase):
         converge_list = []
         print(len(train_loader))
         global step
-
+        loss = 99999
         for epoch in tqdm.tqdm(range(cfg.epochs), desc='training'):
-
+            scheduler_plateau.step(loss)
+            scheduler_warmup.step()
             pbar = tqdm.tqdm((enumerate(train_loader)), leave = False, desc='batch', total=len(train_loader))
             for j, data in pbar:
                 model.train()
@@ -124,8 +138,6 @@ class TextSR(base.TextBase):
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 5)
                 optimizer.step()
-                scheduler_plateau.step(loss)
-                scheduler_warmup.step()
 
                 # lr = []
                 for ind, param_group in enumerate(optimizer.param_groups):
@@ -209,7 +221,7 @@ class TextSR(base.TextBase):
                             if ssim > best_history_ssim[data_name]:
                                 best_history_ssim[data_name] = float(ssim)
                                 best_history_ssim['epoch'] = epoch
-                                print('update best_ssim_%s = %.4f%%*' % (data_name, best_history_ssim[data_name]))
+                                print('╰( ͡° ͜ʖ ͡° )つ──☆*:・ﾟ*:・ﾟ*:・ﾟ*:・ﾟ*:・ﾟ*:・ﾟupdate best_ssim_%s = %.4f%%*' % (data_name, best_history_ssim[data_name]))
                             else:
                                 print('not update best_ssim_%s = %.4f%%' % (data_name, best_history_ssim[data_name]))
                         else:
@@ -257,6 +269,7 @@ class TextSR(base.TextBase):
             
                 step += 1
             # сохранять sr_img несколько изоб в послений батч эпохи
+            
 
 
     def get_crnn_pred(self, outputs):
@@ -360,7 +373,9 @@ class TextSR(base.TextBase):
                 metric_dict['images_and_labels'].append((images_hr.detach().cpu(), images_sr.detach().cpu(), label_strs, crnn_predict_result_sr))
 
                 crnn_cnt_sr = 0
+                crnn_sr_pred_text = 'target -> crnn_sr_pred  \n'
                 for pred, target in zip(crnn_predict_result_sr, label_strs):
+                    crnn_sr_pred_text += target+' -> '+pred+"  \n"
                     if pred == target:
                         crnn_n_correct_sr += 1
                     crnn_cnt_sr += 1
@@ -371,7 +386,9 @@ class TextSR(base.TextBase):
                 crnn_predict_result_lr = self.get_crnn_pred(crnn_outputs_lr)
 
                 crnn_cnt_lr = 0
+                crnn_lr_pred_text = 'target -> crnn_lr_pred  \n'
                 for pred, target in zip(crnn_predict_result_lr, label_strs):
+                    crnn_lr_pred_text += target+' -> '+pred+"  \n"
                     if pred == target:
                         crnn_n_correct_lr += 1
                     crnn_cnt_lr += 1
@@ -379,12 +396,15 @@ class TextSR(base.TextBase):
                 # CTC Test
 
                 ctc_cnt = 0
+                ctc_pred_text = 'target -> ctc_decode_string  \n'
                 ctc_decode_strings = self.ctc_decode(tag_scores)
                 if self.cfg.enable_rec:
                     for ctc_decode_string, target in zip(ctc_decode_strings, label_strs):
+                        ctc_pred_text += target+' -> '+ctc_decode_string+"  \n"
                         if ctc_decode_string == target:
                             ctc_n_correct += 1
-                    ctc_cnt += 1                
+                    ctc_cnt += 1
+                
 
                 # Вывод изображений в TensorBoard
                 if i == len(val_loader) - 1:
@@ -394,16 +414,20 @@ class TextSR(base.TextBase):
                     show_hr = images_hr[index, ...].clone().detach()
                     show_sr = images_sr[index, ...].clone().detach()
 
-                    crnn_pred_sr = crnn_predict_result_sr[index]
-                    crnn_pred_lr = crnn_predict_result_lr[index]
-                    ctc_pred = ctc_decode_strings[index]
+                    crnn_pred_sr = crnn_predict_result_sr[index].replace('"', '<quot>')
+                    crnn_pred_lr = crnn_predict_result_lr[index].replace('"', '<quot>')
+                    ctc_pred = ctc_decode_strings[index].replace('"', '<quot>')
 
                     un = UnNormalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 
                     print('save display images')
-                    self.writer.add_image(f'{mode}/{epoch}_epoch_lr_image_eval_crnn_pred:{crnn_pred_lr}', torch.clamp(un(show_lr), min=0, max=1), step)
-                    self.writer.add_image(f'{mode}/{epoch}_epoch_sr_image_eval_crnn_pred:{crnn_pred_sr}_ctc_pred:{ctc_pred}', torch.clamp(un(show_sr), min=0, max=1), step)
-                    self.writer.add_image(f'{mode}/{epoch}_epoch_hr_image_eval', torch.clamp(un(show_hr), min=0, max=1), step)
+                    self.writer.add_image(f'{mode}/{epoch}_epoch_{index}_index_lr_image_eval_crnn_pred:{crnn_pred_lr}', torch.clamp(un(show_lr), min=0, max=1), step)
+                    self.writer.add_image(f'{mode}/{epoch}_epoch_{index}_index_sr_image_eval_crnn_pred:{crnn_pred_sr}_ctc_pred:{ctc_pred}', torch.clamp(un(show_sr), min=0, max=1), step)
+                    self.writer.add_image(f'{mode}/{epoch}_epoch_{index}_index_hr_image_eval', torch.clamp(un(show_hr), min=0, max=1), step)
+                
+                    self.writer.add_text(f'CTC_pred/{epoch}_epoch', ctc_pred_text)
+                    self.writer.add_text(f'CRNN_SR_pred/{epoch}_epoch', crnn_sr_pred_text)
+                    self.writer.add_text(f'CRNN_LR_pred/{epoch}_epoch', crnn_lr_pred_text)
                 
                 sum_images += val_batch_size
 
@@ -414,34 +438,34 @@ class TextSR(base.TextBase):
             psnr_avg = sum(metric_dict['psnr']) / len(metric_dict['psnr'])
             psnr_avg = round(psnr_avg.item(), 6)
             metric_dict['psnr_avg'] = psnr_avg
-            self.writer.add_scalar('other/psnr_avg', psnr_avg, step)
+            self.writer.add_scalar(f'other/{mode}/psnr_avg', psnr_avg, step)
 
             # SSIM
 
             ssim_avg = sum(metric_dict['ssim']) / len(metric_dict['ssim'])
             ssim_avg = round(ssim_avg.item(), 6)
             metric_dict['ssim_avg'] = ssim_avg
-            self.writer.add_scalar('other/ssim_avg', ssim_avg, step)
+            self.writer.add_scalar(f'other/{mode}/ssim_avg', ssim_avg, step)
 
             # CRNN ACC SR
 
             crnn_sr_accuray = round(crnn_n_correct_sr / sum_images, 4)
             metric_dict['crnn_sr_accuray'] = crnn_sr_accuray
-            self.writer.add_scalar('accuray/crnn_sr_accuray', crnn_sr_accuray * 100, step)
+            self.writer.add_scalar(f'accuray/{mode}/crnn_sr_accuray', crnn_sr_accuray * 100, step)
             print('crnn_sr_accuray: %.2f%%' % (crnn_sr_accuray * 100))
 
             # CRNN ACC LR
 
             crnn_lr_accuray = round(crnn_n_correct_lr / sum_images, 4)
             metric_dict['crnn_lr_accuray'] = crnn_lr_accuray
-            self.writer.add_scalar('accuray/crnn_lr_accuray', crnn_lr_accuray * 100, step)
+            self.writer.add_scalar(f'accuray/{mode}/crnn_lr_accuray', crnn_lr_accuray * 100, step)
             print('crnn_lr_accuray: %.2f%%' % (crnn_lr_accuray * 100))
 
             # CTC ACC SR
 
             ctc_sr_accuray = round(ctc_n_correct / sum_images, 4)
             metric_dict['ctc_sr_accuray'] = ctc_sr_accuray
-            self.writer.add_scalar('accuray/ctc_sr_accuray', ctc_sr_accuray * 100, step)
+            self.writer.add_scalar(f'accuray/{mode}/ctc_sr_accuray', ctc_sr_accuray * 100, step)
             print('ctc_sr_accuray: %.2f%%' % (ctc_sr_accuray * 100))
 
             print('[{}]\t'
