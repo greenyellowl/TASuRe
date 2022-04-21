@@ -8,6 +8,8 @@ import collections
 import string
 from IPython import embed
 
+import matplotlib.pyplot as plt
+
 
 def str_filt(str_, voc_type):
     alpha_dict = {
@@ -22,6 +24,20 @@ def str_filt(str_, voc_type):
         if char not in alpha_dict[voc_type]:
             str_ = str_.replace(char, '')
     return str_
+
+def check_enabled_grad(model):
+    for name, param in model.named_parameters():
+        if not param.requires_grad:
+            print(name, 'ГРАД НЕТ')
+        else:
+            print(name, 'ГРАД ЕСТЬ')
+
+def show_image(images, ind):
+    un = UnNormalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    temp_image = images[ind, ...].clone().detach()
+    img_un = un(temp_image)
+    plt.imshow(torch.moveaxis(img_un.cpu(), 0, 2))
+    plt.show()
 
 
 class strLabelConverter(object):
