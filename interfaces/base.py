@@ -63,18 +63,19 @@ class TextBase(object):
         cfg = self.cfg # инициализация конфига
         if isinstance(cfg.train_data_dir, list):
             dataset_list = []
-            for data_dir_ in cfg.train_data_dir: # Обычные изображния
-                el_index = cfg.train_data_dir.index(data_dir_)
-                train_data_annotations_file = cfg.train_data_annotations_file[el_index]
-                print('collect dataset: '+data_dir_)
-                dataset_list.append(
-                    self.load_dataset(cfg=cfg,
-                                      isTextZoom=False,
-                                      data_dir=data_dir_,
-                                      data_annotations_file=train_data_annotations_file,
-                                      # voc_type=cfg.voc_type,
-                                      # max_len=cfg.max_len,
-                                      ).load_dataset()) # создаётся объект класса loadDataset
+            if len(cfg.train_data_dir) > 0:
+                for data_dir_ in cfg.train_data_dir: # Обычные изображния
+                    el_index = cfg.train_data_dir.index(data_dir_)
+                    train_data_annotations_file = cfg.train_data_annotations_file[el_index]
+                    print('collect dataset: '+data_dir_)
+                    dataset_list.append(
+                        self.load_dataset(cfg=cfg,
+                                        isTextZoom=False,
+                                        data_dir=data_dir_,
+                                        data_annotations_file=train_data_annotations_file,
+                                        # voc_type=cfg.voc_type,
+                                        # max_len=cfg.max_len,
+                                        ).load_dataset()) # создаётся объект класса loadDataset
             if len(cfg.train_data_textzoom_dir) > 0:
                 for data_dir_ in cfg.train_data_textzoom_dir: # TextZoom
                     print('collect dataset: '+data_dir_)
@@ -103,24 +104,25 @@ class TextBase(object):
             dataset_list = []
             loader_list = []
 
-            for data_dir_ in cfg.test_val_data_dir: # Обычные изображния
-                print('collect dataset: '+data_dir_)
-                el_index = cfg.test_val_data_dir.index(data_dir_)
-                data_annotations_file = cfg.test_val_data_annotations_file[el_index]
+            if len(cfg.train_data_dir) > 0:
+                for data_dir_ in cfg.test_val_data_dir: # Обычные изображния
+                    print('collect dataset: '+data_dir_)
+                    el_index = cfg.test_val_data_dir.index(data_dir_)
+                    data_annotations_file = cfg.test_val_data_annotations_file[el_index]
 
-                test_val_dataset = self.load_dataset(cfg=cfg,
-                                      isTextZoom=False,
-                                      data_dir=data_dir_,
-                                      data_annotations_file=data_annotations_file,
-                                      # voc_type=cfg.voc_type,
-                                      # max_len=cfg.max_len,
-                                      ).load_dataset()
-                dataset_list.append(test_val_dataset) # создаётся объект класса loadDataset
+                    test_val_dataset = self.load_dataset(cfg=cfg,
+                                        isTextZoom=False,
+                                        data_dir=data_dir_,
+                                        data_annotations_file=data_annotations_file,
+                                        # voc_type=cfg.voc_type,
+                                        # max_len=cfg.max_len,
+                                        ).load_dataset()
+                    dataset_list.append(test_val_dataset) # создаётся объект класса loadDataset
 
-                test_val_loader = torch.utils.data.DataLoader(
-                    test_val_dataset, batch_size=self.batch_size,
-                    shuffle=False, num_workers=int(cfg.workers),drop_last=True, pin_memory=True)
-                loader_list.append(test_val_loader)
+                    test_val_loader = torch.utils.data.DataLoader(
+                        test_val_dataset, batch_size=self.batch_size,
+                        shuffle=False, num_workers=int(cfg.workers),drop_last=True, pin_memory=True)
+                    loader_list.append(test_val_loader)
 
             if len(cfg.test_val_textzoom_data_dir)>0:
                 for data_dir_ in cfg.test_val_textzoom_data_dir: # TextZoom

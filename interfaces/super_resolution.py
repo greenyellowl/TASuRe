@@ -6,6 +6,7 @@ from interfaces import base
 import copy
 import logging
 from datetime import datetime
+import utils
 from utils import util, ssim_psnr, UnNormalize, exceptions
 import random
 import os
@@ -14,8 +15,6 @@ import tqdm
 
 from utils.metrics import get_str_list, Accuracy
 from utils.util import str_filt
-
-import matplotlib.pyplot as plt
 
 # from warmup_scheduler import GradualWarmupScheduler
 from pytorch_warmup_scheduler import WarmupScheduler # https://github.com/hysts/pytorch_warmup-scheduler
@@ -35,9 +34,9 @@ class TextSR(base.TextBase):
         cfg = self.cfg
 
         scheduler_plateau_patience = 2
-        scheduler_plateau_cooldown = 5
+        scheduler_plateau_cooldown = 4
         scheduler_warmup_epoch = scheduler_plateau_cooldown
-        scheduler_plateau_factor = 0.05
+        scheduler_plateau_factor = 0.8
 
         config_txt = f"""Возможно номальное обучение  \n
                          scale_factor: {cfg.scale_factor}  \n
@@ -48,12 +47,22 @@ class TextSR(base.TextBase):
                          epochs: {cfg.epochs}  \n
                          lr: {cfg.lr}  \n
                          convNext_type: {cfg.convNext_type}  \n
+                           \n
                          enable_sr: {cfg.enable_sr}  \n
                          enable_rec: {cfg.enable_rec}  \n
+                           \n
+                         freeze_sr: {cfg.freeze_sr}  \n
+                         freeze_rec: {cfg.freeze_rec}  \n
+                         freeze_convnext: {cfg.freeze_convnext}  \n
+                           \n
                          train_after_sr: {cfg.train_after_sr}  \n
+                           \n
                          lambda_mse: {cfg.lambda_mse}  \n
                          lambda_ctc: {cfg.lambda_ctc}  \n
+                           \n
                          acc_best_model: {cfg.acc_best_model}  \n
+                         rec_best_model_save: {cfg.rec_best_model_save}  \n
+                           \n
                          scheduler_plateau_patience: {scheduler_plateau_patience}  \n
                          scheduler_plateau_cooldown: {scheduler_plateau_cooldown}  \n
                          scheduler_warmup_epoch: {scheduler_warmup_epoch}  \n
@@ -73,32 +82,52 @@ class TextSR(base.TextBase):
         scheduler_plateau = ReduceLROnPlateau(optimizer, 'min', patience=scheduler_plateau_patience, cooldown=scheduler_plateau_cooldown, min_lr=1e-7, verbose=True, factor=scheduler_plateau_factor)
         scheduler_warmup = WarmupScheduler(optimizer, warmup_epoch=scheduler_warmup_epoch)
 
-
-        # best_history_acc = dict(
-        #     zip([val_loader_dir.split('/')[-1] for val_loader_dir in self.cfg.test_val_data_dir],
-        #         [0] * len(test_val_loader_list)))
-
-        best_history_acc = dict()
+        best_history_metric_values = dict()
         for val_loader in test_val_loader_list:
             data_name = val_loader.dataset.dataset_name
-            best_history_acc[data_name] = 0
-        best_history_ssim = dict()
-        for val_loader in test_val_loader_list:
-            data_name = val_loader.dataset.dataset_name
-            best_history_ssim[data_name] = 0
+            best_history_metric_values[data_name] = 0
+        
+        # Если включена только ветка распознавания
+        if self.cfg.enable_rec == True:
+            if self.cfg.rec_best_model_save == 'lev_dis':
+                best_history_lev_dis = dict()
+                for val_loader in test_val_loader_list:
+                    data_name = val_loader.dataset.dataset_name
+                    best_history_lev_dis[data_name] = 0
+            elif self.cfg.rec_best_model_save == 'acc':
+                best_history_acc = dict()
+                for val_loader in test_val_loader_list:
+                    data_name = val_loader.dataset.dataset_name
+                    best_history_acc[data_name] = 0
+            else:
+                raise exceptions.WrongMetrucForSaveBestRec
+        # Если включена только ср ветка
+        elif self.cfg.enable_sr == True:
+            best_history_ssim = dict()
+            for val_loader in test_val_loader_list:
+                data_name = val_loader.dataset.dataset_name
+                best_history_ssim[data_name] = 0
+        else:
+            raise exceptions.WrongEnabledBranches
 
         best_model_acc = copy.deepcopy(best_history_acc)
         best_model_psnr = copy.deepcopy(best_history_acc)
         best_model_ssim = copy.deepcopy(best_history_acc)
         best_acc = 0
         best_ssim = 0
+
         converge_list = []
+
         print(len(train_loader))
+
         global step
+
         loss = 99999
+
         for epoch in tqdm.tqdm(range(cfg.epochs), desc='training'):
             scheduler_plateau.step(loss)
             scheduler_warmup.step()
+            
             pbar = tqdm.tqdm((enumerate(train_loader)), leave = False, desc='batch', total=len(train_loader))
             for j, data in pbar:
                 model.train()
@@ -110,12 +139,6 @@ class TextSR(base.TextBase):
                 images_hr, images_lr, label_strs, dataset_name = data
                 images_lr = images_lr.to(self.device)
                 images_hr = images_hr.to(self.device)
-
-                # un = UnNormalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-                # temp_hr = images_hr[0, ...].clone().detach()
-                # img_un = un(temp_hr)
-                # plt.imshow(torch.moveaxis(img_un.cpu(), 0, 2))
-                # plt.show()
 
                 # Прогон модели
                 
@@ -133,6 +156,7 @@ class TextSR(base.TextBase):
                 self.writer.add_scalar('loss/ctc_loss', ctc_loss, step)
                 # self.writer.add_scalar('loss/content_loss', recognition_loss, step)
                 
+                # Loss и Optimizer
 
                 optimizer.zero_grad()
                 loss.backward()
@@ -143,7 +167,7 @@ class TextSR(base.TextBase):
                 for ind, param_group in enumerate(optimizer.param_groups):
                     # lr = param_group['lr']
                     lr = scheduler_warmup.get_last_lr()[0]
-                    self.writer.add_scalar('loss/learning rate', lr, step)
+                    self.writer.add_scalar('loss/learning rate', lr, epoch)
                     break
                 
                 # Вывод лоссов и ЛР в консоль
@@ -155,7 +179,6 @@ class TextSR(base.TextBase):
                                   f"learning rate={lr:.10f}"
 
                     pbar.set_description(info_string)
-
                 
                 # Вывод изображений в TensorBoard на первом батче в эпохе
                 if j == 1:
@@ -167,9 +190,9 @@ class TextSR(base.TextBase):
 
                     un = UnNormalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 
-                    self.writer.add_image(f'first_batch/{dataset}/lr_image_first_batch_epoch:{epoch}', torch.clamp(un(show_lr), min=0, max=1), step)
-                    self.writer.add_image(f'first_batch/{dataset}/sr_image_first_batch_epoch:{epoch}', torch.clamp(un(show_sr), min=0, max=1), step)
-                    self.writer.add_image(f'first_batch/{dataset}/hr_image_first_batch_epoch:{epoch}', torch.clamp(un(show_hr), min=0, max=1), step)
+                    self.writer.add_image(f'first_batch/{dataset}/{epoch}_epoch_{index}_index_lr_image_first_batch', torch.clamp(un(show_lr), min=0, max=1), step)
+                    self.writer.add_image(f'first_batch/{dataset}/{epoch}_epoch_{index}_index_sr_image_first_batch', torch.clamp(un(show_sr), min=0, max=1), step)
+                    self.writer.add_image(f'first_batch/{dataset}/{epoch}_epoch_{index}_index_hr_image_first_batch', torch.clamp(un(show_hr), min=0, max=1), step)
 
 
                 # Валидация
@@ -178,6 +201,7 @@ class TextSR(base.TextBase):
                     print('======================================================')
 
                     current_acc_dict = {}
+                    current_metric_dict = {}
                     current_ssim_dict = {}
                     
                     for k, val_loader in enumerate(test_val_loader_list):
@@ -197,8 +221,8 @@ class TextSR(base.TextBase):
                                               'psnr_avg': metrics_dict['psnr_avg'],
                                               'ssim_avg': metrics_dict['ssim_avg']})
 
-                        
-                        if self.cfg.enable_sr == True and self.cfg.enable_rec == True: # Если включены обе ветки, то модель сохраняем по точности распознавания
+                        # Если включена только ветка распознавания, то обновляем точность распознавания
+                        if self.cfg.enable_rec == True:
                             if self.cfg.acc_best_model == 'crnn':
                                 accuray = metrics_dict['crnn_sr_accuray']
                             elif self.cfg.acc_best_model == 'ctc':
@@ -211,23 +235,25 @@ class TextSR(base.TextBase):
                             if accuray > best_history_acc[data_name]:
                                 best_history_acc[data_name] = float(accuray)
                                 best_history_acc['epoch'] = epoch
-                                print('update best_acc_%s = %.2f%%*' % (data_name, best_history_acc[data_name] * 100))
+                                print('╰( ͡° ͜ʖ ͡° )つ──☆*:・ﾟ*:・ﾟ*:・ﾟ*:・ﾟ*:・ﾟ*:・ﾟupdate best_acc_%s = %.4f%%*' % (data_name, best_history_acc[data_name] * 100))
                             else:
                                 print('not update best_acc_%s = %.2f%%' % (data_name, best_history_acc[data_name] * 100))
-                        elif self.cfg.enable_sr == True and self.cfg.enable_rec == False: # Если включена только ср ветка, то модель сохраняем по степени схожести изображений (SSIM)
+                        # Если включена только ср ветка, то обновляем степень схожести изображений (SSIM)
+                        elif self.cfg.enable_sr == True:
                             ssim = metrics_dict['ssim_avg']
                             current_ssim_dict[data_name] = float(ssim)
 
                             if ssim > best_history_ssim[data_name]:
                                 best_history_ssim[data_name] = float(ssim)
                                 best_history_ssim['epoch'] = epoch
-                                print('╰( ͡° ͜ʖ ͡° )つ──☆*:・ﾟ*:・ﾟ*:・ﾟ*:・ﾟ*:・ﾟ*:・ﾟupdate best_ssim_%s = %.4f%%*' % (data_name, best_history_ssim[data_name]))
+                                print('╰( ͡° ͜ʖ ͡° )つ──☆*:・ﾟ*:・ﾟ*:・ﾟ*:・ﾟ*:・ﾟ*:・ﾟupdate best_ssim_%s = %.10f' % (data_name, best_history_ssim[data_name]))
                             else:
                                 print('not update best_ssim_%s = %.4f%%' % (data_name, best_history_ssim[data_name]))
                         else:
-                            raise exceptions.WrongEnableBranches
+                            raise exceptions.WrongEnabledBranches
                     
-                    if self.cfg.enable_sr == True and self.cfg.enable_rec == True: # Если включены обе ветки, то модель сохраняем по точности распознавания
+                    # Если включена только ветка распознавания, то модель сохраняем по точности распознавания
+                    if self.cfg.enable_rec == True:
                         if sum(current_acc_dict.values()) > best_acc:
                             best_acc = sum(current_acc_dict.values())
                             best_model_acc = current_acc_dict
@@ -238,8 +264,8 @@ class TextSR(base.TextBase):
                             print('saving best model')
                             self.save_checkpoint(model, epoch, iters, best_history_acc, best_model_info, True,
                                                 converge_list, self.log_dir_name)
-                    
-                    elif self.cfg.enable_sr == True and self.cfg.enable_rec == False: # Если включена только ср ветка, то модель сохраняем по степени схожести изображений (SSIM)
+                    # Если включена только ср ветка, то модель сохраняем по степени схожести изображений (SSIM)
+                    elif self.cfg.enable_sr == True:
                         if sum(current_ssim_dict.values()) > best_ssim:
                             best_ssim = sum(current_ssim_dict.values())
                             best_model_ssim[data_name] = current_ssim_dict
@@ -260,7 +286,7 @@ class TextSR(base.TextBase):
                             self.save_checkpoint(model, epoch, iters, best_history_acc, best_model_info, True,
                                                 converge_list, self.log_dir_name)
                         
-
+                # Сохранение чек-поинта
                 if iters % cfg.saveInterval == 0:
                     best_model_info = {'accuracy': best_model_acc, 'psnr': best_model_psnr, 'ssim': best_model_ssim}
                     self.save_checkpoint(model, epoch, iters, best_history_acc, best_model_info, False, converge_list,
@@ -268,9 +294,7 @@ class TextSR(base.TextBase):
 
             
                 step += 1
-            # сохранять sr_img несколько изоб в послений батч эпохи
             
-
 
     def get_crnn_pred(self, outputs):
         alphabet = '-0123456789abcdefghijklmnopqrstuvwxyz'
@@ -318,7 +342,27 @@ class TextSR(base.TextBase):
         
         return strings
 
+    @staticmethod
+    def levenshtein_distance(a, b): # https://ru.wikibooks.org/wiki/Реализации_алгоритмов/Расстояние_Левенштейна#Python
+        "Calculates the Levenshtein distance between a and b."
+        n, m = len(a), len(b)
+        if n > m:
+            # Make sure n <= m, to use O(min(n, m)) space
+            a, b = b, a
+            n, m = m, n
 
+        current_row = range(n + 1)  # Keep current and previous row, not entire matrix
+        for i in range(1, m + 1):
+            previous_row, current_row = current_row, [i] + [0] * n
+            for j in range(1, n + 1):
+                add, delete, change = previous_row[j] + 1, current_row[j - 1] + 1, previous_row[j - 1]
+                if a[j - 1] != b[i - 1]:
+                    change += 1
+                current_row[j] = min(add, delete, change)
+
+        return current_row[n]
+
+    
     def eval(self, model, val_loader, image_crit, index, recognizer, aster_info, mode, step, epoch):
         with torch.no_grad():
             global easy_test_times
@@ -329,8 +373,13 @@ class TextSR(base.TextBase):
             recognizer.eval()
 
             crnn_n_correct_sr = 0
+            crnn_sr_lev_dis_list = []
             crnn_n_correct_lr = 0
-            ctc_n_correct = 0
+            crnn_lr_lev_dis_list = []
+            ctc_sr_n_correct = 0
+            ctc_sr_lev_dis_list = []
+            # ctc_lr_n_correct = 0
+            # ctc_lr_lev_dis_list = []
             sum_images = 0
 
             # metric_dict = {'ICDAR 2013': {'psnr': [], 'ssim': [], 'crnn_sr_accuray': 0.0, 'ctc_sr_accuray': 0.0, 'psnr_avg': 0.0, 'ssim_avg': 0.0, 'images_and_labels': []},
@@ -342,7 +391,7 @@ class TextSR(base.TextBase):
             #                'TextZoom_hard': {'psnr': [], 'ssim': [], 'crnn_sr_accuray': 0.0, 'ctc_sr_accuray': 0.0, 'psnr_avg': 0.0, 'ssim_avg': 0.0, 'images_and_labels': []},
             #                'Total': {'psnr': [], 'ssim': [], 'crnn_sr_accuray': 0.0, 'ctc_sr_accuray': 0.0, 'psnr_avg': 0.0, 'ssim_avg': 0.0, 'images_and_labels': []}}
 
-            metric_dict = {'psnr': [], 'ssim': [], 'crnn_sr_accuray': 0.0, 'crnn_lr_accuray': 0.0, 'ctc_sr_accuray': 0.0, 'psnr_avg': 0.0, 'ssim_avg': 0.0, 'images_and_labels': []}
+            metric_dict = {'psnr': [], 'ssim': [], 'crnn_sr_accuray': 0.0, 'crnn_sr_lev_dis_avg': 0.0, 'crnn_lr_accuray': 0.0, 'crnn_lr_lev_dis_avg': 0.0, 'ctc_sr_accuray': 0.0, 'ctc_sr_lev_dis_avg': 0.0, 'psnr_avg': 0.0, 'ssim_avg': 0.0, 'images_and_labels': []}
 
             image_start_index = 0
 
@@ -359,135 +408,178 @@ class TextSR(base.TextBase):
 
                 loss, mse_loss, ctc_loss = image_crit(images_sr, tag_scores, images_hr, label_strs)
 
-                # Вычисление PSNR и SSIM
+                # Если включена ветка СР или модель предобучена на СР, считаем степень зашумлённости и похожести изображений
+                if self.cfg.enable_sr or self.cfg.train_after_sr: 
+                    # Вычисление PSNR и SSIM
+                    
+                    metric_dict['psnr'].append(self.cal_psnr(images_sr, images_hr))
+                    metric_dict['ssim'].append(self.cal_ssim(images_sr, images_hr))
+
+                # Если включена ветка распознавания, считаем точность распознавания
+                if self.cfg.enable_rec: 
+                    # CRNN Test
+                    
+                    crnn_recognizer_dict_sr = self.parse_crnn_data(images_sr[:, :3, :, :])
+                    crnn_recognizer_output_sr = recognizer(crnn_recognizer_dict_sr)
+                    crnn_outputs_sr = crnn_recognizer_output_sr.permute(1, 0, 2).contiguous()
+                    crnn_predict_result_sr = self.get_crnn_pred(crnn_outputs_sr)
+                    metric_dict['images_and_labels'].append((images_hr.detach().cpu(), images_sr.detach().cpu(), label_strs, crnn_predict_result_sr))
+
+                    crnn_cnt_sr = 0
+                    crnn_sr_pred_text = 'target -> crnn_sr_pred  \n'
+                    for pred, target in zip(crnn_predict_result_sr, label_strs):
+
+                        crnn_sr_pred_text += target+' -> '+pred+"  \n"
+                        crnn_sr_lev_dis_list.append(self.levenshtein_distance(target, pred))
+                        if pred == target:
+                            crnn_n_correct_sr += 1
+                        crnn_cnt_sr += 1
+                    
+                    crnn_recognizer_dict_lr = self.parse_crnn_data(images_lr[:, :3, :, :])
+                    crnn_recognizer_output_lr = recognizer(crnn_recognizer_dict_lr)
+                    crnn_outputs_lr = crnn_recognizer_output_lr.permute(1, 0, 2).contiguous()
+                    crnn_predict_result_lr = self.get_crnn_pred(crnn_outputs_lr)
+
+                    crnn_cnt_lr = 0
+                    crnn_lr_pred_text = 'target -> crnn_lr_pred  \n'
+                    for pred, target in zip(crnn_predict_result_lr, label_strs):
+                        crnn_lr_pred_text += target+' -> '+pred+"  \n"
+                        crnn_lr_lev_dis_list.append(self.levenshtein_distance(target, pred))
+                        if pred == target:
+                            crnn_n_correct_lr += 1
+                        crnn_cnt_lr += 1
+
+                    # CTC Test
+
+                    ctc_cnt = 0
+                    ctc_pred_text = 'target -> ctc_decode_string  \n'
+                    ctc_decode_strings = self.ctc_decode(tag_scores)
+                    if self.cfg.enable_rec:
+                        for ctc_decode_string, target in zip(ctc_decode_strings, label_strs):
+                            ctc_pred_text += target+' -> '+ctc_decode_string+"  \n"
+                            ctc_sr_lev_dis_list.append(self.levenshtein_distance(target, ctc_decode_string))
+                            if ctc_decode_string == target:
+                                ctc_sr_n_correct += 1
+                        ctc_cnt += 1
+                else:
+                    crnn_pred_lr = 'NONE'
+                    crnn_pred_sr = 'NONE'
+                    ctc_pred = 'NONE'
                 
-                metric_dict['psnr'].append(self.cal_psnr(images_sr, images_hr))
-                metric_dict['ssim'].append(self.cal_ssim(images_sr, images_hr))
 
-                # CRNN Test
-                
-                crnn_recognizer_dict_sr = self.parse_crnn_data(images_sr[:, :3, :, :])
-                crnn_recognizer_output_sr = recognizer(crnn_recognizer_dict_sr)
-                crnn_outputs_sr = crnn_recognizer_output_sr.permute(1, 0, 2).contiguous()
-                crnn_predict_result_sr = self.get_crnn_pred(crnn_outputs_sr)
-                metric_dict['images_and_labels'].append((images_hr.detach().cpu(), images_sr.detach().cpu(), label_strs, crnn_predict_result_sr))
-
-                crnn_cnt_sr = 0
-                crnn_sr_pred_text = 'target -> crnn_sr_pred  \n'
-                for pred, target in zip(crnn_predict_result_sr, label_strs):
-                    crnn_sr_pred_text += target+' -> '+pred+"  \n"
-                    if pred == target:
-                        crnn_n_correct_sr += 1
-                    crnn_cnt_sr += 1
-                
-                crnn_recognizer_dict_lr = self.parse_crnn_data(images_lr[:, :3, :, :])
-                crnn_recognizer_output_lr = recognizer(crnn_recognizer_dict_lr)
-                crnn_outputs_lr = crnn_recognizer_output_lr.permute(1, 0, 2).contiguous()
-                crnn_predict_result_lr = self.get_crnn_pred(crnn_outputs_lr)
-
-                crnn_cnt_lr = 0
-                crnn_lr_pred_text = 'target -> crnn_lr_pred  \n'
-                for pred, target in zip(crnn_predict_result_lr, label_strs):
-                    crnn_lr_pred_text += target+' -> '+pred+"  \n"
-                    if pred == target:
-                        crnn_n_correct_lr += 1
-                    crnn_cnt_lr += 1
-
-                # CTC Test
-
-                ctc_cnt = 0
-                ctc_pred_text = 'target -> ctc_decode_string  \n'
-                ctc_decode_strings = self.ctc_decode(tag_scores)
-                if self.cfg.enable_rec:
-                    for ctc_decode_string, target in zip(ctc_decode_strings, label_strs):
-                        ctc_pred_text += target+' -> '+ctc_decode_string+"  \n"
-                        if ctc_decode_string == target:
-                            ctc_n_correct += 1
-                    ctc_cnt += 1
-                
-
-                # Вывод изображений в TensorBoard
+                # Вывод изображений и предсказаний в TensorBoard
                 if i == len(val_loader) - 1:
                     index = random.randint(0, images_lr.shape[0]-1)
 
-                    show_lr = images_lr[index, ...].clone().detach()
-                    show_hr = images_hr[index, ...].clone().detach()
-                    show_sr = images_sr[index, ...].clone().detach()
+                    # Если включена ветка распознавания
+                    if self.cfg.enable_rec:
+                        ground_truth = label_strs[index].replace('"', '<quot>')
+                        crnn_pred_sr = crnn_predict_result_sr[index].replace('"', '<quot>')
+                        crnn_pred_lr = crnn_predict_result_lr[index].replace('"', '<quot>')
+                        ctc_pred = ctc_decode_strings[index].replace('"', '<quot>')
 
-                    crnn_pred_sr = crnn_predict_result_sr[index].replace('"', '<quot>')
-                    crnn_pred_lr = crnn_predict_result_lr[index].replace('"', '<quot>')
-                    ctc_pred = ctc_decode_strings[index].replace('"', '<quot>')
+                        self.writer.add_text(f'{mode}/CTC_pred/{epoch}_epoch', ctc_pred_text)
+                        self.writer.add_text(f'{mode}/CRNN_SR_pred/{epoch}_epoch', crnn_sr_pred_text)
+                        self.writer.add_text(f'{mode}/CRNN_LR_pred/{epoch}_epoch', crnn_lr_pred_text)
 
-                    un = UnNormalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+                    # Если включена ветка СР или модель предобучена на СР
+                    if self.cfg.enable_sr or self.cfg.train_after_sr:
+                        show_lr = images_lr[index, ...].clone().detach()
+                        show_hr = images_hr[index, ...].clone().detach()
+                        show_sr = images_sr[index, ...].clone().detach()                    
 
-                    print('save display images')
-                    self.writer.add_image(f'{mode}/{epoch}_epoch_{index}_index_lr_image_eval_crnn_pred:{crnn_pred_lr}', torch.clamp(un(show_lr), min=0, max=1), step)
-                    self.writer.add_image(f'{mode}/{epoch}_epoch_{index}_index_sr_image_eval_crnn_pred:{crnn_pred_sr}_ctc_pred:{ctc_pred}', torch.clamp(un(show_sr), min=0, max=1), step)
-                    self.writer.add_image(f'{mode}/{epoch}_epoch_{index}_index_hr_image_eval', torch.clamp(un(show_hr), min=0, max=1), step)
-                
-                    self.writer.add_text(f'CTC_pred/{epoch}_epoch', ctc_pred_text)
-                    self.writer.add_text(f'CRNN_SR_pred/{epoch}_epoch', crnn_sr_pred_text)
-                    self.writer.add_text(f'CRNN_LR_pred/{epoch}_epoch', crnn_lr_pred_text)
-                
+                        un = UnNormalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+
+                        print('save display images')
+                        self.writer.add_image(f'{mode}/{epoch}_epoch_{index}_index_lr_image_eval_crnn_pred:{crnn_pred_lr}', torch.clamp(un(show_lr), min=0, max=1), step)
+                        self.writer.add_image(f'{mode}/{epoch}_epoch_{index}_index_sr_image_eval_crnn_pred:{crnn_pred_sr}_ctc_pred:{ctc_pred}', torch.clamp(un(show_sr), min=0, max=1), step)
+                        self.writer.add_image(f'{mode}/{epoch}_epoch_{index}_index_hr_image_eval_groundTruth:{ground_truth}', torch.clamp(un(show_hr), min=0, max=1), step)
+                    
                 sum_images += val_batch_size
 
                 torch.cuda.empty_cache()
 
-            # PSNR
+            # Если включена ветка СР  или модель предобучена на СР
+            if self.cfg.enable_sr or self.cfg.train_after_sr: 
+                # PSNR
 
-            psnr_avg = sum(metric_dict['psnr']) / len(metric_dict['psnr'])
-            psnr_avg = round(psnr_avg.item(), 6)
-            metric_dict['psnr_avg'] = psnr_avg
-            self.writer.add_scalar(f'other/{mode}/psnr_avg', psnr_avg, step)
+                psnr_avg = sum(metric_dict['psnr']) / len(metric_dict['psnr'])
+                psnr_avg = round(psnr_avg.item(), 6)
+                metric_dict['psnr_avg'] = psnr_avg
+                self.writer.add_scalar(f'other/{mode}/psnr_avg', psnr_avg, step)
 
-            # SSIM
+                # SSIM
 
-            ssim_avg = sum(metric_dict['ssim']) / len(metric_dict['ssim'])
-            ssim_avg = round(ssim_avg.item(), 6)
-            metric_dict['ssim_avg'] = ssim_avg
-            self.writer.add_scalar(f'other/{mode}/ssim_avg', ssim_avg, step)
+                ssim_avg = sum(metric_dict['ssim']) / len(metric_dict['ssim'])
+                ssim_avg = round(ssim_avg.item(), 6)
+                metric_dict['ssim_avg'] = ssim_avg
+                self.writer.add_scalar(f'other/{mode}/ssim_avg', ssim_avg, step)
+            else:
+                psnr_avg = 0
+                ssim_avg = 0
+                print('Ветка сверхразрешения ВЫКЛЮЧЕНА. PSNR и SSIM не соответствуют действительности\n')
+ 
+            # Если включена ветка распознавания
+            if self.cfg.enable_rec:
+                # CRNN ACC SR
 
-            # CRNN ACC SR
+                crnn_sr_accuray = round(crnn_n_correct_sr / sum_images, 4)
+                metric_dict['crnn_sr_accuray'] = crnn_sr_accuray
+                self.writer.add_scalar(f'accuray/{mode}/crnn_sr_accuray', crnn_sr_accuray * 100, step)
+                print('crnn_sr_accuray: %.2f%%' % (crnn_sr_accuray * 100))
 
-            crnn_sr_accuray = round(crnn_n_correct_sr / sum_images, 4)
-            metric_dict['crnn_sr_accuray'] = crnn_sr_accuray
-            self.writer.add_scalar(f'accuray/{mode}/crnn_sr_accuray', crnn_sr_accuray * 100, step)
-            print('crnn_sr_accuray: %.2f%%' % (crnn_sr_accuray * 100))
+                # CRNN LEV DIS SR
+                
+                crnn_sr_lev_dis_avg = round(sum(crnn_sr_lev_dis_list) / sum_images, 4)
+                metric_dict['crnn_sr_lev_dis_avg'] = crnn_sr_lev_dis_avg
+                self.writer.add_scalar(f'other/{mode}/crnn_sr_lev_dis_avg', crnn_sr_lev_dis_avg, step)
 
-            # CRNN ACC LR
+                # CRNN ACC LR
 
-            crnn_lr_accuray = round(crnn_n_correct_lr / sum_images, 4)
-            metric_dict['crnn_lr_accuray'] = crnn_lr_accuray
-            self.writer.add_scalar(f'accuray/{mode}/crnn_lr_accuray', crnn_lr_accuray * 100, step)
-            print('crnn_lr_accuray: %.2f%%' % (crnn_lr_accuray * 100))
+                crnn_lr_accuray = round(crnn_n_correct_lr / sum_images, 4)
+                metric_dict['crnn_lr_accuray'] = crnn_lr_accuray
+                self.writer.add_scalar(f'accuray/{mode}/crnn_lr_accuray', crnn_lr_accuray * 100, step)
+                print('crnn_lr_accuray: %.2f%%' % (crnn_lr_accuray * 100))
 
-            # CTC ACC SR
+                # CRNN LEV DIS LR
+                
+                crnn_lr_lev_dis_avg = round(sum(crnn_lr_lev_dis_list) / sum_images, 4)
+                metric_dict['crnn_lr_lev_dis_avg'] = crnn_lr_lev_dis_avg
+                self.writer.add_scalar(f'other/{mode}/crnn_lr_lev_dis_avg', crnn_lr_lev_dis_avg, step)
 
-            ctc_sr_accuray = round(ctc_n_correct / sum_images, 4)
-            metric_dict['ctc_sr_accuray'] = ctc_sr_accuray
-            self.writer.add_scalar(f'accuray/{mode}/ctc_sr_accuray', ctc_sr_accuray * 100, step)
-            print('ctc_sr_accuray: %.2f%%' % (ctc_sr_accuray * 100))
+                # CTC ACC SR
+
+                ctc_sr_accuray = round(ctc_sr_n_correct / sum_images, 4)
+                metric_dict['ctc_sr_accuray'] = ctc_sr_accuray
+                self.writer.add_scalar(f'accuray/{mode}/ctc_sr_accuray', ctc_sr_accuray * 100, step)
+                print('ctc_sr_accuray: %.2f%%' % (ctc_sr_accuray * 100))
+
+                # CTC LEV DIS SR
+                
+                ctc_sr_lev_dis_avg = round(sum(ctc_sr_lev_dis_list) / sum_images, 4)
+                metric_dict['ctc_sr_lev_dis_avg'] = ctc_sr_lev_dis_avg
+                self.writer.add_scalar(f'other/{mode}/ctc_sr_lev_dis_avg', ctc_sr_lev_dis_avg, step)
+            else:
+                crnn_sr_accuray = 0
+                crnn_lr_accuray = 0
+                crnn_sr_lev_dis_avg = 0
+                crnn_lr_lev_dis_avg = 0
+                ctc_sr_accuray = 0
+                ctc_sr_lev_dis_avg = 0
+                print('Ветка распознавания ВЫКЛЮЧЕНА. CRNN и CTC не соответствуют действительности\n')
 
             print('[{}]\t'
-                  'loss {:.3f} | mse_loss {:.3f} | ctc_loss {:.3f}\t\t'
+                  'loss {:.3f} | mse_loss {:.3f} | ctc_loss {:.3f}\t'
                   'PSNR {:.2f} | SSIM {:.4f}\t'
                   'crnn_sr_accuray {:.2f} | crnn_lr_accuray {:.2f}\t'
-                  'ctc_sr_accuray {:.2f}'
+                  'crnn_sr_lev_dis_avg {:.2f} | crnn_lr_lev_dis_avg {:.2f}\t'
+                  'ctc_sr_accuray {:.2f} | ctc_sr_lev_dis_avg {:.2f}'
                   .format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                           loss, mse_loss, ctc_loss,
                           float(psnr_avg), float(ssim_avg),
                           float(crnn_sr_accuray), float(crnn_lr_accuray),
-                          float(ctc_sr_accuray), ))
-
-            # if mode == 'easy':
-            #     self.writer.add_scalar('{}_accuracy'.format(mode), accuracy, easy_test_times)
-            #     easy_test_times += 1
-            # if mode == 'medium':
-            #     self.writer.add_scalar('{}_accuracy'.format(mode), accuracy, medium_test_times)
-            #     medium_test_times += 1
-            # if mode == 'hard':
-            #     self.writer.add_scalar('{}_accuracy'.format(mode), accuracy, hard_test_times)
-            #     hard_test_times += 1
+                          float(crnn_sr_lev_dis_avg), float(crnn_lr_lev_dis_avg),
+                          float(ctc_sr_accuray), float(ctc_sr_lev_dis_avg), ))
 
             return metric_dict
 
