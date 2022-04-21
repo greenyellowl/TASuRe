@@ -13,15 +13,15 @@ class Wangji(nn.Module):
         super(Wangji, self).__init__()
 
         self.cfg = cfg
-        
+
         if self.cfg.convNext_type == 'T':
-            depths = [3, 3, 9]
-            dims = [96, 192, 384]
-            finalConv_in_channels = 3
+                depths = [3, 3, 9]
+                dims = [96, 192, 384]
+                finalConv_in_channels = 3
         elif self.cfg.convNext_type == 'S':
-            depths = [3, 3, 27]
-            dims = [96, 192, 384]
-            finalConv_in_channels = 3
+                depths = [3, 3, 27]
+                dims = [96, 192, 384]
+                finalConv_in_channels = 3
         # elif self.cfg.convNext_type == 'B': # Не сработает, т.к. нужно, чтобы dims[2] делилось на 3.
         #     depths = [3, 3, 27]
         #     dims = [128, 256, 512]
@@ -34,37 +34,8 @@ class Wangji(nn.Module):
         #     dims = [256, 512, 1024]
         else:
             depths = [3, 3, 9]
-            dims = [96, 192, 384]        
-        
-        #ConvNext (Red Branch) https://paperswithcode.com/paper/a-convnet-for-the-2020s
+            dims = [96, 192, 384]  
 
-        drop_path_rate = 0.
-        layer_scale_init_value = 1e-6
-        self.convnext_downsample_layers = nn.ModuleList()  # stem and 2 intermediate downsampling conv layers
-        stem = nn.Sequential(
-            nn.Conv2d(in_chans, dims[0], kernel_size=2, stride=2),
-            LayerNorm(dims[0], eps=1e-6, data_format="channels_first")
-        )
-        self.convnext_downsample_layers.append(stem)
-        for i in range(2):
-            downsample_layer = nn.Sequential(
-                LayerNorm(dims[i], eps=1e-6, data_format="channels_first"),
-                nn.Conv2d(dims[i], dims[i + 1], kernel_size=2, stride=2),
-            )
-            self.convnext_downsample_layers.append(downsample_layer)
-
-        self.convnext_blocks = nn.ModuleList()  # 3 feature resolution stages, each consisting of multiple residual blocks
-        dp_rates = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]
-        cur = 0
-        for i in range(3):
-            stage = nn.Sequential(
-                *[Block(dim=dims[i], drop_path=dp_rates[cur + j],
-                        layer_scale_init_value=layer_scale_init_value) for j in range(depths[i])]
-            )
-            self.convnext_blocks.append(stage)
-            cur += depths[i]
-
-        
         if self.cfg.enable_sr or self.cfg.train_after_sr:
             #LongSkip
 
@@ -88,15 +59,58 @@ class Wangji(nn.Module):
             # self.upsample = nn.Sequential(*upsample)
             self.upsample = sub_pixel(scale_factor)
             
-            self.finalConv = nn.Conv2d(in_channels=finalConv_in_channels, out_channels=3, kernel_size=3, padding=1, bias=True)
+            self.finalConv = nn.Conv2d(in_channels=finalConv_in_channels, out_channels=3, kernel_size=3, padding=1, bias=True)                  
+            
+            #ConvNext (Red Branch) https://paperswithcode.com/paper/a-convnet-for-the-2020s
 
-            if self.cfg.train_after_sr:
+            drop_path_rate = 0.
+            layer_scale_init_value = 1e-6
+            self.convnext_downsample_layers = nn.ModuleList()  # stem and 2 intermediate downsampling conv layers
+            stem = nn.Sequential(
+                nn.Conv2d(in_chans, dims[0], kernel_size=2, stride=2),
+                LayerNorm(dims[0], eps=1e-6, data_format="channels_first")
+            )
+            self.convnext_downsample_layers.append(stem)
+            for i in range(2):
+                downsample_layer = nn.Sequential(
+                    LayerNorm(dims[i], eps=1e-6, data_format="channels_first"),
+                    nn.Conv2d(dims[i], dims[i + 1], kernel_size=2, stride=2),
+                )
+                self.convnext_downsample_layers.append(downsample_layer)
+
+            self.convnext_blocks = nn.ModuleList()  # 3 feature resolution stages, each consisting of multiple residual blocks
+            dp_rates = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]
+            cur = 0
+            for i in range(3):
+                stage = nn.Sequential(
+                    *[Block(dim=dims[i], drop_path=dp_rates[cur + j],
+                            layer_scale_init_value=layer_scale_init_value) for j in range(depths[i])]
+                )
+                self.convnext_blocks.append(stage)
+                cur += depths[i]
+
+
+            if self.cfg.freeze_sr:
                 self.convLS0.weight.requires_grad = False
+                self.convLS0.bias.requires_grad = False
+
                 self.convLS1.weight.requires_grad = False
+                self.convLS1.bias.requires_grad = False
+
                 self.convBlue1.weight.requires_grad = False
+                self.convBlue1.bias.requires_grad = False
+
                 self.convBlue2.weight.requires_grad = False
-                self.convLS0.weight.requires_grad = False
-                self.finalConv.requires_grad = False
+                self.convBlue2.bias.requires_grad = False
+
+                self.finalConv.weight.requires_grad = False
+                self.finalConv.bias.requires_grad = False
+            if self.cfg.freeze_convnext:
+                for param in self.convnext_downsample_layers.parameters():
+                    param.requires_grad = False
+
+                for param in self.convnext_blocks.parameters():
+                    param.requires_grad = False
         
         
         if self.cfg.enable_rec:
@@ -116,7 +130,7 @@ class Wangji(nn.Module):
             # self.BOS, self.EOS, self.PAD, self.BLANK = self.TGT_VOCAB_SIZE+1, self.TGT_VOCAB_SIZE+2, self.TGT_VOCAB_SIZE+3, 0
             self.FULL_VOCAB_SIZE = cfg.FULL_VOCAB_SIZE
 
-            self.linear = nn.Linear((16*dims[2]), self.FULL_VOCAB_SIZE)
+            # self.linear = nn.Linear((16*dims[2]), self.FULL_VOCAB_SIZE)
 
             # LSTM
 
@@ -128,6 +142,22 @@ class Wangji(nn.Module):
             tagset_size  = self.cfg.FULL_VOCAB_SIZE
 
             self.LSTM = LSTMTagger(input_size, hidden_size, num_layers, batch_first, bidirectional, tagset_size)
+
+            if self.cfg.freeze_rec:
+                self.convPreProc0.weight.requires_grad = False
+                self.convPreProc0.bias.requires_grad = False
+
+                self.convPreProc1.weight.requires_grad = False
+                self.convPreProc1.bias.requires_grad = False
+
+                self.convPreProc2.weight.requires_grad = False
+                self.convPreProc2.bias.requires_grad = False
+
+                for param in self.LAM.parameters():
+                    param.requires_grad = False
+
+                for param in self.LSTM.parameters():
+                    param.requires_grad = False
                 
 
     def forward(self, x):
@@ -361,7 +391,8 @@ class sub_pixel(nn.Module):
     def __init__(self, scale, act=False):
         super(sub_pixel, self).__init__()
         modules = []
-        modules.append(nn.PixelShuffle(scale*8))
+        PixelShuffle = nn.PixelShuffle(scale*8)
+        modules.append(PixelShuffle)
         self.body = nn.Sequential(*modules)
 
     def forward(self, x):
