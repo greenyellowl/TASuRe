@@ -32,10 +32,10 @@ class MyDataset():
     def load_dataset(self):
 
         transform = A.Compose([
-        # A.RandomBrightnessContrast(p=0.5),
-        # A.Rotate(limit=8, p=1, border_mode=cv2.BORDER_CONSTANT),
-        # A.InvertImg(p=0.5),
-        # A.ChannelShuffle(p=0.5),
+        A.RandomBrightnessContrast(p=0.5),
+        A.Rotate(limit=8, p=1, border_mode=cv2.BORDER_CONSTANT),
+        A.InvertImg(p=0.5),
+        A.ChannelShuffle(p=0.5),
         ])
         transform_hr = A.Compose([
         A.augmentations.geometric.resize.Resize(self.cfg.height*self.cfg.scale_factor,self.cfg.width*self.cfg.scale_factor),
@@ -44,8 +44,8 @@ class MyDataset():
         ])
         transform_lr = A.Compose([
         A.augmentations.geometric.resize.Resize(self.cfg.height,self.cfg.width),
-        # A.ImageCompression(p=0.5, quality_lower=0, quality_upper=100),
-        # A.Blur(p=0.5),
+        A.ImageCompression(p=0.5, quality_lower=50, quality_upper=100),
+        A.Blur(p=0.5),
         A.augmentations.transforms.Normalize(self.cfg.norm_mean, self.cfg.norm_std),
         A.pytorch.transforms.ToTensorV2(),
         ])
@@ -66,7 +66,7 @@ class MyDataset():
 
 class ICDARImageDataset(Dataset):
     def __init__(self, annotations_file, img_dir, transforms=None, target_transform=None):
-        self.img_labels = pd.read_csv(annotations_file, sep=', ', header=None, engine='python')
+        self.img_labels = pd.read_csv(annotations_file, sep=', ', header=None, engine='python', na_filter=False)
         self.img_dir = img_dir
         self.transforms = transforms
         self.target_transform = target_transform
@@ -85,13 +85,15 @@ class ICDARImageDataset(Dataset):
         # print(image.shape)
         # print(image)
         image = np.moveaxis(image, 0, -1)
-        label = self.img_labels.iloc[idx, 1]
+        label = str(self.img_labels.iloc[idx, 1])
+        # label = label
         # plt.imshow(image)
         # plt.show()
         if self.transforms:
-            # image = self.transforms['transform_init'](image=image)
-            image_hr = self.transforms['transform_hr'](image=image)
-            image_lr = self.transforms['transform_lr'](image=image)
+            image_tr = self.transforms['transform_init'](image=image)
+            image_tr = image_tr['image']
+            image_hr = self.transforms['transform_hr'](image=image_tr)
+            image_lr = self.transforms['transform_lr'](image=image_tr)
         if self.target_transform:
             label = self.target_transform(label)
         # un = UnNormalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
@@ -175,9 +177,10 @@ class lmdbDataset(Dataset):
         img_np = np.array(img)
         # img_np_ma = np.moveaxis(img_np, -1, 0)
         if self.transforms:
-            # image = self.transforms['transform_init'](image=img_np)
-            image_hr = self.transforms['transform_hr'](image=img_np)
-            image_lr = self.transforms['transform_lr'](image=img_np)
+            image_tr = self.transforms['transform_init'](image=img_np)
+            image_tr = image_tr['image']
+            image_hr = self.transforms['transform_hr'](image=image_tr)
+            image_lr = self.transforms['transform_lr'](image=image_tr)
 
         # un = UnNormalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
         # img_un = un(image_hr['image'])
