@@ -1,4 +1,5 @@
 from this import d
+from turtle import update
 import torch
 from torch.optim.lr_scheduler import ReduceLROnPlateau, ExponentialLR
 
@@ -21,6 +22,8 @@ from pytorch_warmup_scheduler import WarmupScheduler # https://github.com/hysts/
 from einops import rearrange
 
 from ctcdecode import CTCBeamDecoder
+
+import time
 
 step = 0
 easy_test_times = 0
@@ -72,51 +75,25 @@ class TextSR(base.TextBase):
         train_dataset, train_loader = self.get_train_data()
         test_val_dataset_list, test_val_loader_list = self.get_test_val_data()
         model_dict = self.generator_init()
-        model, image_crit = model_dict['model'], model_dict['crit']
+        model, image_crit, optimizer = model_dict['model'], model_dict['crit']
 
+        if optimizer is None:
+            optimizer = self.optimizer_init(model)
         aster, aster_info = self.CRNN_init()
-        optimizer = self.optimizer_init(model)
 
         # scheduler
 
         scheduler_plateau = ReduceLROnPlateau(optimizer, 'min', patience=scheduler_plateau_patience, cooldown=scheduler_plateau_cooldown, min_lr=1e-7, verbose=True, factor=scheduler_plateau_factor)
         scheduler_warmup = WarmupScheduler(optimizer, warmup_epoch=scheduler_warmup_epoch)
 
-        best_history_metric_values = dict()
+        best_history_follow_metric_values = dict()
         for val_loader in test_val_loader_list:
             data_name = val_loader.dataset.dataset_name
-            best_history_metric_values[data_name] = 0
+            best_history_follow_metric_values[data_name] = {'epoch': -1, 'value': None}
         
-        # Если включена только ветка распознавания
-        if self.cfg.enable_rec == True:
-            if self.cfg.rec_best_model_save == 'lev_dis':
-                best_history_lev_dis = dict()
-                for val_loader in test_val_loader_list:
-                    data_name = val_loader.dataset.dataset_name
-                    best_history_lev_dis[data_name] = 0
-            elif self.cfg.rec_best_model_save == 'acc':
-                best_history_acc = dict()
-                for val_loader in test_val_loader_list:
-                    data_name = val_loader.dataset.dataset_name
-                    best_history_acc[data_name] = 0
-            else:
-                raise exceptions.WrongMetrucForSaveBestRec
-        # Если включена только ср ветка
-        elif self.cfg.enable_sr == True:
-            best_history_ssim = dict()
-            for val_loader in test_val_loader_list:
-                data_name = val_loader.dataset.dataset_name
-                best_history_ssim[data_name] = 0
-        else:
-            raise exceptions.WrongEnabledBranches
+        best_sum_follow_metric_value = 0
 
-        best_model_acc = copy.deepcopy(best_history_acc)
-        best_model_psnr = copy.deepcopy(best_history_acc)
-        best_model_ssim = copy.deepcopy(best_history_acc)
-        best_acc = 0
-        best_ssim = 0
-
-        converge_list = []
+        metrics_dict_datasets = {} # для сохранения первых чекпоинтов
 
         print(len(train_loader))
 
@@ -127,51 +104,90 @@ class TextSR(base.TextBase):
         for epoch in tqdm.tqdm(range(cfg.epochs), desc='training'):
             scheduler_plateau.step(loss)
             scheduler_warmup.step()
+            spend_time_epoch = ''
             
             pbar = tqdm.tqdm((enumerate(train_loader)), leave = False, desc='batch', total=len(train_loader))
             for j, data in pbar:
+                start_batch_time = time.time() * 1000
+                spend_time = ''
+                start_time = time.time() * 1000
                 model.train()
                 # for p in model.parameters():
                 #     assert p.requires_grad == True
                 iters = len(train_loader) * epoch + j
+                end_time = time.time() * 1000
+                duration = end_time - start_time
+                spend_time += 'first block '+str(duration)+'  \n'
 
+                start_time = time.time() * 1000
                 # Получение данных из датасетов
                 images_hr, images_lr, label_strs, dataset_name = data
                 images_lr = images_lr.to(self.device)
                 images_hr = images_hr.to(self.device)
+                end_time = time.time() * 1000
+                duration = end_time - start_time
+                spend_time += 'Получение данных из датасетов '+str(duration)+'  \n'
+
 
                 # Прогон модели
                 
+                start_time = time.time() * 1000
                 images_sr, tag_scores = model(images_lr)
+                end_time = time.time() * 1000
+                duration = end_time - start_time
+                spend_time += 'Прогон модели '+str(duration)+'  \n'
+
 
                 # Лоссы
                 
+                start_time = time.time() * 1000
                 loss, mse_loss, ctc_loss = image_crit(images_sr, tag_scores, images_hr, label_strs)
+                end_time = time.time() * 1000
+                duration = end_time - start_time
+                spend_time += 'Лоссы '+str(duration)+'  \n'
+
                 
                 # Запись лоссов в TensorBoard
                 
+                start_time = time.time() * 1000
                 # self.writer.add_scalar('loss/total_loss', total_loss.data, step)
                 self.writer.add_scalar('loss/loss', loss, step)
                 self.writer.add_scalar('loss/mse_loss', mse_loss, step)
                 self.writer.add_scalar('loss/ctc_loss', ctc_loss, step)
                 # self.writer.add_scalar('loss/content_loss', recognition_loss, step)
+                end_time = time.time() * 1000
+                duration = end_time - start_time
+                spend_time += 'Запись лоссов в TensorBoard '+str(duration)+'  \n'
+
                 
                 # Loss и Optimizer
 
+                start_time = time.time() * 1000
                 optimizer.zero_grad()
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 5)
                 optimizer.step()
+                end_time = time.time() * 1000
+                duration = end_time - start_time
+                spend_time += 'Loss и Optimizer '+str(duration)+'  \n'
 
-                # lr = []
+
+                # Логгирование лосов
+
+                start_time = time.time() * 1000
                 for ind, param_group in enumerate(optimizer.param_groups):
                     # lr = param_group['lr']
                     lr = scheduler_warmup.get_last_lr()[0]
                     self.writer.add_scalar('loss/learning rate', lr, epoch)
                     break
                 
+                end_time = time.time() * 1000
+                duration = end_time - start_time
+                spend_time += 'Логгирование лосов '+str(duration)+'  \n'
+
+                
                 # Вывод лоссов и ЛР в консоль
 
+                start_time = time.time() * 1000
                 if iters % cfg.displayInterval == 0:
                     info_string = f"loss={float(loss.data):03.3f} | " \
                                   f"mse_loss={float(mse_loss):03.3f} | " \
@@ -180,7 +196,13 @@ class TextSR(base.TextBase):
 
                     pbar.set_description(info_string)
                 
+                end_time = time.time() * 1000
+                duration = end_time - start_time
+                spend_time += 'Вывод лоссов и ЛР в консоль '+str(duration)+'  \n'
+
+                
                 # Вывод изображений в TensorBoard на первом батче в эпохе
+                start_time = time.time() * 1000
                 if j == 1:
                     index = random.randint(0, images_lr.shape[0]-1)
                     dataset = dataset_name[index]
@@ -193,107 +215,66 @@ class TextSR(base.TextBase):
                     self.writer.add_image(f'first_batch/{dataset}/{epoch}_epoch_{index}_index_lr_image_first_batch', torch.clamp(un(show_lr), min=0, max=1), step)
                     self.writer.add_image(f'first_batch/{dataset}/{epoch}_epoch_{index}_index_sr_image_first_batch', torch.clamp(un(show_sr), min=0, max=1), step)
                     self.writer.add_image(f'first_batch/{dataset}/{epoch}_epoch_{index}_index_hr_image_first_batch', torch.clamp(un(show_hr), min=0, max=1), step)
+                
+                end_time = time.time() * 1000
+                duration = end_time - start_time
+                spend_time += 'Вывод изображений в TensorBoard на первом батче в эпохе '+str(duration)+'  \n'
 
 
-                # Валидация
+                # ВАЛИДАЦИЯ
+
+                start_time = time.time() * 1000
                 if j == len(train_loader)-1:
                     print('\n')
-                    print('======================================================')
+                    print('\n')
+                    print('===================================================VALIDATION===================================================')
 
-                    current_acc_dict = {}
-                    current_metric_dict = {}
-                    current_ssim_dict = {}
+                    current_follow_metric_dict = {}
+
+                    metrics_dict_datasets = {}
                     
                     for k, val_loader in enumerate(test_val_loader_list):
-                        data_name = val_loader.dataset.dataset_name
+                        dataset_name = val_loader.dataset.dataset_name
 
-                        print('\n')
-                        print('evaling %s' % data_name)
+                        print('evaling %s' % dataset_name)
 
-                        metrics_dict = self.eval(model, val_loader, image_crit, iters, aster, aster_info, data_name, step, epoch)
+                        metrics_dict = self.eval(model, val_loader, image_crit, iters, aster, aster_info, dataset_name, step, epoch)
+                        metrics_dict_datasets[dataset_name] = metrics_dict
 
-                        converge_list.append({'iterator': iters,
-                                              'psnr': metrics_dict['psnr'],
-                                              'ssim': metrics_dict['ssim'],
-                                              'crnn_sr_accuray': metrics_dict['crnn_sr_accuray'],
-                                              'crnn_lr_accuray': metrics_dict['crnn_lr_accuray'],
-                                              'ctc_sr_accuray': metrics_dict['ctc_sr_accuray'],
-                                              'psnr_avg': metrics_dict['psnr_avg'],
-                                              'ssim_avg': metrics_dict['ssim_avg']})
-
-                        # Если включена только ветка распознавания, то обновляем точность распознавания
-                        if self.cfg.enable_rec == True:
-                            if self.cfg.acc_best_model == 'crnn':
-                                accuray = metrics_dict['crnn_sr_accuray']
-                            elif self.cfg.acc_best_model == 'ctc':
-                                accuray = metrics_dict['ctc_sr_accuray']
-                            else:
-                                accuray = metrics_dict['ctc_sr_accuray']
-                            
-                            current_acc_dict[data_name] = float(accuray)
-
-                            if accuray > best_history_acc[data_name]:
-                                best_history_acc[data_name] = float(accuray)
-                                best_history_acc['epoch'] = epoch
-                                print('╰( ͡° ͜ʖ ͡° )つ──☆*:・ﾟ*:・ﾟ*:・ﾟ*:・ﾟ*:・ﾟ*:・ﾟupdate best_acc_%s = %.4f%%*' % (data_name, best_history_acc[data_name] * 100))
-                            else:
-                                print('not update best_acc_%s = %.2f%%' % (data_name, best_history_acc[data_name] * 100))
-                        # Если включена только ср ветка, то обновляем степень схожести изображений (SSIM)
-                        elif self.cfg.enable_sr == True:
-                            ssim = metrics_dict['ssim_avg']
-                            current_ssim_dict[data_name] = float(ssim)
-
-                            if ssim > best_history_ssim[data_name]:
-                                best_history_ssim[data_name] = float(ssim)
-                                best_history_ssim['epoch'] = epoch
-                                print('╰( ͡° ͜ʖ ͡° )つ──☆*:・ﾟ*:・ﾟ*:・ﾟ*:・ﾟ*:・ﾟ*:・ﾟupdate best_ssim_%s = %.10f' % (data_name, best_history_ssim[data_name]))
-                            else:
-                                print('not update best_ssim_%s = %.4f%%' % (data_name, best_history_ssim[data_name]))
-                        else:
-                            raise exceptions.WrongEnabledBranches
-                    
-                    # Если включена только ветка распознавания, то модель сохраняем по точности распознавания
-                    if self.cfg.enable_rec == True:
-                        if sum(current_acc_dict.values()) > best_acc:
-                            best_acc = sum(current_acc_dict.values())
-                            best_model_acc = current_acc_dict
-                            best_model_acc['epoch'] = epoch
-                            best_model_psnr[data_name] = metrics_dict['psnr_avg']
-                            best_model_ssim[data_name] = metrics_dict['ssim_avg']
-                            best_model_info = {'accuracy': best_model_acc, 'psnr': best_model_psnr, 'ssim': best_model_ssim}
-                            print('saving best model')
-                            self.save_checkpoint(model, epoch, iters, best_history_acc, best_model_info, True,
-                                                converge_list, self.log_dir_name)
-                    # Если включена только ср ветка, то модель сохраняем по степени схожести изображений (SSIM)
-                    elif self.cfg.enable_sr == True:
-                        if sum(current_ssim_dict.values()) > best_ssim:
-                            best_ssim = sum(current_ssim_dict.values())
-                            best_model_ssim[data_name] = current_ssim_dict
-
-                            if self.cfg.acc_best_model == 'crnn':
-                                accuray = metrics_dict['crnn_sr_accuray']
-                            elif self.cfg.acc_best_model == 'ctc':
-                                accuray = metrics_dict['ctc_sr_accuray']
-                            else:
-                                accuray = metrics_dict['ctc_sr_accuray']
-                            best_model_acc = accuray
-
-                            best_model_ssim['epoch'] = epoch
-                            best_model_psnr[data_name] = metrics_dict['psnr_avg']
-
-                            best_model_info = {'accuracy': best_model_acc, 'psnr': best_model_psnr, 'ssim': best_model_ssim}
-                            print('saving best model')
-                            self.save_checkpoint(model, epoch, iters, best_history_acc, best_model_info, True,
-                                                converge_list, self.log_dir_name)
+                        # Сохраняем значения отслеживаемой метки из каждого датасета
+                        follow_metric_name, _, _ = self.get_follow_metric_name()
+                        current_follow_metric_dict[dataset_name] = metrics_dict[follow_metric_name]
                         
+                        # Обновляем словарь с лучими значениями отслеживаемой метрики в каждом датасете
+                        best_history_follow_metric_values = self.update_best_metric(metrics_dict, best_history_follow_metric_values, dataset_name, epoch)
+                    
+                    # Сохранение модели
+                    best_sum_follow_metric_value = self.save_best_model(follow_metric_name, current_follow_metric_dict, best_history_follow_metric_values, 
+                                                                        best_sum_follow_metric_value, metrics_dict_datasets, model, optimizer, iters, epoch)
+                  
+                end_time = time.time() * 1000
+                duration = end_time - start_time
+                spend_time += 'ВАЛИДАЦИЯ '+str(duration)+'  \n'
+     
                 # Сохранение чек-поинта
+                start_time = time.time() * 1000 
                 if iters % cfg.saveInterval == 0:
-                    best_model_info = {'accuracy': best_model_acc, 'psnr': best_model_psnr, 'ssim': best_model_ssim}
-                    self.save_checkpoint(model, epoch, iters, best_history_acc, best_model_info, False, converge_list,
-                                         self.log_dir_name)
+                    follow_metric_name, _, _ = self.get_follow_metric_name()
+                    best_model_info = metrics_dict_datasets
+                    self.save_checkpoint(model, optimizer, epoch, iters, follow_metric_name, best_history_follow_metric_values, best_model_info,
+                                            False, self.log_dir_name)
+                
+                end_time = time.time() * 1000
+                duration = end_time - start_time
+                spend_time += 'Сохранение чек-поинта '+str(duration)+'  \n'
 
-            
+                end_batch_time = time.time() * 1000
+                duration_batch = end_batch_time - start_batch_time
+                spend_time_epoch += 'batch '+str(j)+'  \n'+spend_time+'  \nduration batch '+str(duration_batch)
+
                 step += 1
+            
+            self.writer.add_text(f'spend_time/{epoch}_epoch', spend_time_epoch)
             
 
     def get_crnn_pred(self, outputs):
@@ -362,8 +343,120 @@ class TextSR(base.TextBase):
 
         return current_row[n]
 
+
+    def calculate_crnn_pred(self, images, label_strs, recognizer, crnn_lev_dis_list, crnn_lev_dis_relation_list):
+        crnn_recognizer_dict = self.parse_crnn_data(images[:, :3, :, :])
+        crnn_recognizer_output = recognizer(crnn_recognizer_dict)
+        crnn_outputs = crnn_recognizer_output.permute(1, 0, 2).contiguous()
+        crnn_predict_result = self.get_crnn_pred(crnn_outputs)
+
+        crnn_cnt = 0
+        crnn_n_correct = 0
+        crnn_pred_text = 'target -> crnn_pred  \n'
+        for pred, target in zip(crnn_predict_result, label_strs):
+            crnn_pred_text += target+' -> '+pred+"  \n"
+            lev_dis = self.levenshtein_distance(target, pred)
+            crnn_lev_dis_list.append(lev_dis)
+            crnn_lev_dis_relation_list.append(lev_dis / len(target) if len(target) > 0 else lev_dis)
+            if pred == target:
+                crnn_n_correct += 1
+            crnn_cnt += 1
+        
+        return crnn_n_correct, crnn_cnt, crnn_lev_dis_list, crnn_lev_dis_relation_list, crnn_pred_text, crnn_predict_result
     
-    def eval(self, model, val_loader, image_crit, index, recognizer, aster_info, mode, step, epoch):
+
+    def calculate_ctc_pred(self, tag_scores, label_strs, ctc_lev_dis_list, ctc_lev_dis_relation_list):
+        ctc_cnt = 0
+        ctc_n_correct = 0
+        ctc_pred_text = 'target -> ctc_decode_string  \n'
+        ctc_decode_strings = self.ctc_decode(tag_scores)
+        if self.cfg.enable_rec:
+            for ctc_decode_string, target in zip(ctc_decode_strings, label_strs):
+                ctc_pred_text += target+' -> '+ctc_decode_string+"  \n"
+                lev_dis = self.levenshtein_distance(target, ctc_decode_string)
+                ctc_lev_dis_list.append(lev_dis)
+                ctc_lev_dis_relation_list.append(lev_dis / len(target) if len(target) > 0 else lev_dis)
+                if ctc_decode_string == target:
+                    ctc_n_correct += 1
+            ctc_cnt += 1
+
+        return ctc_n_correct, ctc_cnt, ctc_lev_dis_list, ctc_lev_dis_relation_list, ctc_pred_text, ctc_decode_strings
+    
+    
+    def get_follow_metric_name(self):
+        if self.cfg.enable_rec == True:
+            if self.cfg.acc_best_model == 'crnn':
+                metric_name = 'crnn_sr'
+            elif self.cfg.acc_best_model == 'ctc':
+                metric_name = 'ctc_sr'
+            else:
+                raise exceptions.WrongModelForSaveBestRec
+            if self.cfg.rec_best_model_save == 'acc':
+                metric_name += '_accuracy'
+                metric_print = 'accuracy'
+                direction = 'max'
+            elif self.cfg.rec_best_model_save == 'lev_dis':
+                metric_name += '_lev_dis_relation_avg'
+                metric_print = 'levenshtein_distance'
+                direction = 'min'
+            else:
+                raise exceptions.WrongMetrucForSaveBestRec
+        elif self.cfg.enable_sr == True:
+            metric_name = 'ssim_avg'
+            metric_print = 'SSIM'
+            direction = 'max'
+        else:
+            raise exceptions.WrongEnabledBranches
+
+        return metric_name, metric_print, direction
+    
+    
+    def update_best_metric(self, metrics_dict, best_history_metric_values, dataset_name, epoch):
+        
+        metric_name, metric_print, direction = self.get_follow_metric_name()
+        # acc_metric_name, metric_print, direction
+        
+        current_metric = metrics_dict[metric_name]
+        best_metric = best_history_metric_values[dataset_name]['value']
+
+        if best_metric is None:
+            best_metric = current_metric
+            update = True
+        else:
+            update = current_metric > best_metric if direction=='max' else current_metric < best_metric
+
+        if update:
+            best_history_metric_values[dataset_name]['value'] = float(current_metric)
+            best_history_metric_values[dataset_name]['epoch'] = epoch
+            if self.cfg.rec_best_model_save == 'acc' and self.cfg.enable_rec == True:
+                current_metric = f'{float(current_metric * 100):.2f} %'
+            else:
+                current_metric = f'{float(current_metric):.5f}'
+
+            print(f'╰( ͡° ͜ʖ ͡° )つ──☆*:・ﾟ*:・ﾟ*:・ﾟ*:・ﾟ*:・ﾟ*:・ﾟupdate best_{metric_print}_{dataset_name}. {best_metric} -> {float(current_metric):.4f}')
+        else:
+            print(f'not update best_{metric_print}_{dataset_name} = {best_metric}')
+
+        return best_history_metric_values
+
+    
+    def save_best_model(self, follow_metric_name, current_metric_dict, best_history_metric_values, best_sum_metric_value, metrics_dict_datasets, model, optimizer, iters, epoch):
+        
+        if sum(current_metric_dict.values()) > best_sum_metric_value:
+
+            best_sum_metric_value = sum(current_metric_dict.values())
+
+            best_model_info = metrics_dict_datasets
+
+            print('saving best model')
+            self.save_checkpoint(model, optimizer, epoch, iters, follow_metric_name, best_history_metric_values, best_model_info, True,
+                                self.log_dir_name)
+        
+        return best_sum_metric_value
+    
+    
+    # валидация одного датасета
+    def eval(self, model, val_loader, image_crit, index, recognizer, aster_info, dataset_name, step, epoch):
         with torch.no_grad():
             global easy_test_times
             global medium_test_times
@@ -372,32 +465,37 @@ class TextSR(base.TextBase):
             model.eval()
             recognizer.eval()
 
-            crnn_n_correct_sr = 0
+            crnn_n_correct_sr_sum = 0
             crnn_sr_lev_dis_list = []
-            crnn_n_correct_lr = 0
+            crnn_sr_lev_dis_relation_list = []
+            crnn_n_correct_lr_sum = 0
             crnn_lr_lev_dis_list = []
-            ctc_sr_n_correct = 0
+            crnn_lr_lev_dis_relation_list = []
+            ctc_sr_n_correct_sum = 0
             ctc_sr_lev_dis_list = []
-            # ctc_lr_n_correct = 0
+            ctc_sr_lev_dis_relation_list = []
+            # ctc_lr_n_correct_sum = 0
             # ctc_lr_lev_dis_list = []
-            sum_images = 0
+            psnr_batches = []
+            ssim_batches = []
+            cnt_images = 0
 
-            # metric_dict = {'ICDAR 2013': {'psnr': [], 'ssim': [], 'crnn_sr_accuray': 0.0, 'ctc_sr_accuray': 0.0, 'psnr_avg': 0.0, 'ssim_avg': 0.0, 'images_and_labels': []},
-            #                'ICDAR 2015': {'psnr': [], 'ssim': [], 'crnn_sr_accuray': 0.0, 'ctc_sr_accuray': 0.0, 'psnr_avg': 0.0, 'ssim_avg': 0.0, 'images_and_labels': []},
-            #                'The Street View Text': {'psnr': [], 'ssim': [], 'crnn_sr_accuray': 0.0, 'ctc_sr_accuray': 0.0, 'psnr_avg': 0.0, 'ssim_avg': 0.0, 'images_and_labels': []},
-            #                'The IIIT 5K-word': {'psnr': [], 'ssim': [], 'crnn_sr_accuray': 0.0, 'ctc_sr_accuray': 0.0, 'psnr_avg': 0.0, 'ssim_avg': 0.0, 'images_and_labels': []},
-            #                'TextZoom_easy': {'psnr': [], 'ssim': [], 'crnn_sr_accuray': 0.0, 'ctc_sr_accuray': 0.0, 'psnr_avg': 0.0, 'ssim_avg': 0.0, 'images_and_labels': []},
-            #                'TextZoom_medium': {'psnr': [], 'ssim': [], 'crnn_sr_accuray': 0.0, 'ctc_sr_accuray': 0.0, 'psnr_avg': 0.0, 'ssim_avg': 0.0, 'images_and_labels': []},
-            #                'TextZoom_hard': {'psnr': [], 'ssim': [], 'crnn_sr_accuray': 0.0, 'ctc_sr_accuray': 0.0, 'psnr_avg': 0.0, 'ssim_avg': 0.0, 'images_and_labels': []},
-            #                'Total': {'psnr': [], 'ssim': [], 'crnn_sr_accuray': 0.0, 'ctc_sr_accuray': 0.0, 'psnr_avg': 0.0, 'ssim_avg': 0.0, 'images_and_labels': []}}
+            # metric_dict = {'ICDAR 2013': {'psnr': [], 'ssim': [], 'crnn_sr_accuracy': 0.0, 'ctc_sr_accuracy': 0.0, 'psnr_avg': 0.0, 'ssim_avg': 0.0, 'images_and_labels': []},
+            #                'ICDAR 2015': {'psnr': [], 'ssim': [], 'crnn_sr_accuracy': 0.0, 'ctc_sr_accuracy': 0.0, 'psnr_avg': 0.0, 'ssim_avg': 0.0, 'images_and_labels': []},
+            #                'The Street View Text': {'psnr': [], 'ssim': [], 'crnn_sr_accuracy': 0.0, 'ctc_sr_accuracy': 0.0, 'psnr_avg': 0.0, 'ssim_avg': 0.0, 'images_and_labels': []},
+            #                'The IIIT 5K-word': {'psnr': [], 'ssim': [], 'crnn_sr_accuracy': 0.0, 'ctc_sr_accuracy': 0.0, 'psnr_avg': 0.0, 'ssim_avg': 0.0, 'images_and_labels': []},
+            #                'TextZoom_easy': {'psnr': [], 'ssim': [], 'crnn_sr_accuracy': 0.0, 'ctc_sr_accuracy': 0.0, 'psnr_avg': 0.0, 'ssim_avg': 0.0, 'images_and_labels': []},
+            #                'TextZoom_medium': {'psnr': [], 'ssim': [], 'crnn_sr_accuracy': 0.0, 'ctc_sr_accuracy': 0.0, 'psnr_avg': 0.0, 'ssim_avg': 0.0, 'images_and_labels': []},
+            #                'TextZoom_hard': {'psnr': [], 'ssim': [], 'crnn_sr_accuracy': 0.0, 'ctc_sr_accuracy': 0.0, 'psnr_avg': 0.0, 'ssim_avg': 0.0, 'images_and_labels': []},
+            #                'Total': {'psnr': [], 'ssim': [], 'crnn_sr_accuracy': 0.0, 'ctc_sr_accuracy': 0.0, 'psnr_avg': 0.0, 'ssim_avg': 0.0, 'images_and_labels': []}}
 
-            metric_dict = {'psnr': [], 'ssim': [], 'crnn_sr_accuray': 0.0, 'crnn_sr_lev_dis_avg': 0.0, 'crnn_lr_accuray': 0.0, 'crnn_lr_lev_dis_avg': 0.0, 'ctc_sr_accuray': 0.0, 'ctc_sr_lev_dis_avg': 0.0, 'psnr_avg': 0.0, 'ssim_avg': 0.0, 'images_and_labels': []}
+            metric_dict = {'crnn_sr_accuracy': 0.0, 'crnn_sr_lev_dis_relation_avg': 0.0, 'crnn_lr_accuracy': 0.0, 'crnn_lr_lev_dis_relation_avg': 0.0, 'ctc_sr_accuracy': 0.0, 'ctc_sr_lev_dis_relation_avg': 0.0, 'psnr_avg': 0.0, 'ssim_avg': 0.0, 'images_and_labels': []}
 
             image_start_index = 0
 
             for i, data in (enumerate(val_loader)):
                 # Сбор данных из датасетов и получение результатов работы модели
-                images_hr, images_lr, label_strs, dataset_name = data
+                images_hr, images_lr, label_strs, _ = data
 
                 val_batch_size = images_lr.shape[0]
 
@@ -410,61 +508,32 @@ class TextSR(base.TextBase):
 
                 # Если включена ветка СР или модель предобучена на СР, считаем степень зашумлённости и похожести изображений
                 if self.cfg.enable_sr or self.cfg.train_after_sr: 
-                    # Вычисление PSNR и SSIM
-                    
-                    metric_dict['psnr'].append(self.cal_psnr(images_sr, images_hr))
-                    metric_dict['ssim'].append(self.cal_ssim(images_sr, images_hr))
+                    # Вычисление PSNR и SSIM (Средние по батчу)                    
+                    psnr_batches.append(self.cal_psnr(images_sr, images_hr))
+                    ssim_batches.append(self.cal_ssim(images_sr, images_hr))
 
                 # Если включена ветка распознавания, считаем точность распознавания
                 if self.cfg.enable_rec: 
                     # CRNN Test
                     
-                    crnn_recognizer_dict_sr = self.parse_crnn_data(images_sr[:, :3, :, :])
-                    crnn_recognizer_output_sr = recognizer(crnn_recognizer_dict_sr)
-                    crnn_outputs_sr = crnn_recognizer_output_sr.permute(1, 0, 2).contiguous()
-                    crnn_predict_result_sr = self.get_crnn_pred(crnn_outputs_sr)
-                    metric_dict['images_and_labels'].append((images_hr.detach().cpu(), images_sr.detach().cpu(), label_strs, crnn_predict_result_sr))
-
-                    crnn_cnt_sr = 0
-                    crnn_sr_pred_text = 'target -> crnn_sr_pred  \n'
-                    for pred, target in zip(crnn_predict_result_sr, label_strs):
-
-                        crnn_sr_pred_text += target+' -> '+pred+"  \n"
-                        crnn_sr_lev_dis_list.append(self.levenshtein_distance(target, pred))
-                        if pred == target:
-                            crnn_n_correct_sr += 1
-                        crnn_cnt_sr += 1
+                    # SR
+                    crnn_n_correct_sr, crnn_cnt_sr, crnn_sr_lev_dis_list, crnn_sr_lev_dis_relation_list, crnn_sr_pred_text, crnn_predict_result_sr = self.calculate_crnn_pred(images_sr, label_strs, recognizer, crnn_sr_lev_dis_list, crnn_sr_lev_dis_relation_list)
+                    crnn_n_correct_sr_sum += crnn_n_correct_sr
                     
-                    crnn_recognizer_dict_lr = self.parse_crnn_data(images_lr[:, :3, :, :])
-                    crnn_recognizer_output_lr = recognizer(crnn_recognizer_dict_lr)
-                    crnn_outputs_lr = crnn_recognizer_output_lr.permute(1, 0, 2).contiguous()
-                    crnn_predict_result_lr = self.get_crnn_pred(crnn_outputs_lr)
-
-                    crnn_cnt_lr = 0
-                    crnn_lr_pred_text = 'target -> crnn_lr_pred  \n'
-                    for pred, target in zip(crnn_predict_result_lr, label_strs):
-                        crnn_lr_pred_text += target+' -> '+pred+"  \n"
-                        crnn_lr_lev_dis_list.append(self.levenshtein_distance(target, pred))
-                        if pred == target:
-                            crnn_n_correct_lr += 1
-                        crnn_cnt_lr += 1
+                    # LR
+                    crnn_n_correct_lr, crnn_cnt_lr, crnn_lr_lev_dis_list, crnn_lr_lev_dis_relation_list, crnn_lr_pred_text, crnn_predict_result_lr = self.calculate_crnn_pred(images_lr, label_strs, recognizer, crnn_lr_lev_dis_list, crnn_lr_lev_dis_relation_list)
+                    crnn_n_correct_lr_sum += crnn_n_correct_lr
 
                     # CTC Test
-
-                    ctc_cnt = 0
-                    ctc_pred_text = 'target -> ctc_decode_string  \n'
-                    ctc_decode_strings = self.ctc_decode(tag_scores)
-                    if self.cfg.enable_rec:
-                        for ctc_decode_string, target in zip(ctc_decode_strings, label_strs):
-                            ctc_pred_text += target+' -> '+ctc_decode_string+"  \n"
-                            ctc_sr_lev_dis_list.append(self.levenshtein_distance(target, ctc_decode_string))
-                            if ctc_decode_string == target:
-                                ctc_sr_n_correct += 1
-                        ctc_cnt += 1
+                    ctc_sr_n_correct, ctc_cnt, ctc_sr_lev_dis_list, ctc_sr_lev_dis_relation_list, ctc_pred_text, ctc_decode_strings = self.calculate_ctc_pred(tag_scores, label_strs, ctc_sr_lev_dis_list, ctc_sr_lev_dis_relation_list)                    
+                    ctc_sr_n_correct_sum += ctc_sr_n_correct
+                    
+                    metric_dict['images_and_labels'].append((images_hr.detach().cpu(), images_sr.detach().cpu(), label_strs, crnn_predict_result_sr, crnn_predict_result_lr, ctc_decode_strings))
                 else:
                     crnn_pred_lr = 'NONE'
                     crnn_pred_sr = 'NONE'
                     ctc_pred = 'NONE'
+                    ground_truth = 'NONE'
                 
 
                 # Вывод изображений и предсказаний в TensorBoard
@@ -478,9 +547,9 @@ class TextSR(base.TextBase):
                         crnn_pred_lr = crnn_predict_result_lr[index].replace('"', '<quot>')
                         ctc_pred = ctc_decode_strings[index].replace('"', '<quot>')
 
-                        self.writer.add_text(f'{mode}/CTC_pred/{epoch}_epoch', ctc_pred_text)
-                        self.writer.add_text(f'{mode}/CRNN_SR_pred/{epoch}_epoch', crnn_sr_pred_text)
-                        self.writer.add_text(f'{mode}/CRNN_LR_pred/{epoch}_epoch', crnn_lr_pred_text)
+                        self.writer.add_text(f'CTC_pred/{epoch}_epoch/{dataset_name}', ctc_pred_text)
+                        self.writer.add_text(f'CRNN_SR_pred/{epoch}_epoch/{dataset_name}', crnn_sr_pred_text)
+                        self.writer.add_text(f'CRNN_LR_pred/{epoch}_epoch/{dataset_name}', crnn_lr_pred_text)
 
                     # Если включена ветка СР или модель предобучена на СР
                     if self.cfg.enable_sr or self.cfg.train_after_sr:
@@ -491,11 +560,11 @@ class TextSR(base.TextBase):
                         un = UnNormalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 
                         print('save display images')
-                        self.writer.add_image(f'{mode}/{epoch}_epoch_{index}_index_lr_image_eval_crnn_pred:{crnn_pred_lr}', torch.clamp(un(show_lr), min=0, max=1), step)
-                        self.writer.add_image(f'{mode}/{epoch}_epoch_{index}_index_sr_image_eval_crnn_pred:{crnn_pred_sr}_ctc_pred:{ctc_pred}', torch.clamp(un(show_sr), min=0, max=1), step)
-                        self.writer.add_image(f'{mode}/{epoch}_epoch_{index}_index_hr_image_eval_groundTruth:{ground_truth}', torch.clamp(un(show_hr), min=0, max=1), step)
+                        self.writer.add_image(f'{dataset_name}/{epoch}_epoch_{index}_index_lr_image_eval_crnn_pred:{crnn_pred_lr}', torch.clamp(un(show_lr), min=0, max=1), step)
+                        self.writer.add_image(f'{dataset_name}/{epoch}_epoch_{index}_index_sr_image_eval_crnn_pred:{crnn_pred_sr}_ctc_pred:{ctc_pred}', torch.clamp(un(show_sr), min=0, max=1), step)
+                        self.writer.add_image(f'{dataset_name}/{epoch}_epoch_{index}_index_hr_image_eval_groundTruth:{ground_truth}', torch.clamp(un(show_hr), min=0, max=1), step)
                     
-                sum_images += val_batch_size
+                cnt_images += val_batch_size
 
                 torch.cuda.empty_cache()
 
@@ -503,17 +572,17 @@ class TextSR(base.TextBase):
             if self.cfg.enable_sr or self.cfg.train_after_sr: 
                 # PSNR
 
-                psnr_avg = sum(metric_dict['psnr']) / len(metric_dict['psnr'])
+                psnr_avg = sum(psnr_batches) / len(psnr_batches)
                 psnr_avg = round(psnr_avg.item(), 6)
                 metric_dict['psnr_avg'] = psnr_avg
-                self.writer.add_scalar(f'other/{mode}/psnr_avg', psnr_avg, step)
+                self.writer.add_scalar(f'other/{dataset_name}/psnr_avg', psnr_avg, epoch)
 
                 # SSIM
 
-                ssim_avg = sum(metric_dict['ssim']) / len(metric_dict['ssim'])
+                ssim_avg = sum(ssim_batches) / len(ssim_batches)
                 ssim_avg = round(ssim_avg.item(), 6)
                 metric_dict['ssim_avg'] = ssim_avg
-                self.writer.add_scalar(f'other/{mode}/ssim_avg', ssim_avg, step)
+                self.writer.add_scalar(f'other/{dataset_name}/ssim_avg', ssim_avg, epoch)
             else:
                 psnr_avg = 0
                 ssim_avg = 0
@@ -523,63 +592,63 @@ class TextSR(base.TextBase):
             if self.cfg.enable_rec:
                 # CRNN ACC SR
 
-                crnn_sr_accuray = round(crnn_n_correct_sr / sum_images, 4)
-                metric_dict['crnn_sr_accuray'] = crnn_sr_accuray
-                self.writer.add_scalar(f'accuray/{mode}/crnn_sr_accuray', crnn_sr_accuray * 100, step)
-                print('crnn_sr_accuray: %.2f%%' % (crnn_sr_accuray * 100))
+                crnn_sr_accuracy = round(crnn_n_correct_sr_sum / cnt_images, 4)
+                metric_dict['crnn_sr_accuracy'] = crnn_sr_accuracy
+                self.writer.add_scalar(f'accuracy/{dataset_name}/crnn_sr_accuracy', crnn_sr_accuracy * 100, epoch)
+                print('crnn_sr_accuracy: %.2f%%' % (crnn_sr_accuracy * 100))
 
                 # CRNN LEV DIS SR
                 
-                crnn_sr_lev_dis_avg = round(sum(crnn_sr_lev_dis_list) / sum_images, 4)
-                metric_dict['crnn_sr_lev_dis_avg'] = crnn_sr_lev_dis_avg
-                self.writer.add_scalar(f'other/{mode}/crnn_sr_lev_dis_avg', crnn_sr_lev_dis_avg, step)
+                crnn_sr_lev_dis_relation_avg = round(sum(crnn_sr_lev_dis_relation_list) / cnt_images, 4)
+                metric_dict['crnn_sr_lev_dis_relation_avg'] = crnn_sr_lev_dis_relation_avg
+                self.writer.add_scalar(f'other/{dataset_name}/crnn_sr_lev_dis_relation_avg', crnn_sr_lev_dis_relation_avg, epoch)
 
                 # CRNN ACC LR
 
-                crnn_lr_accuray = round(crnn_n_correct_lr / sum_images, 4)
-                metric_dict['crnn_lr_accuray'] = crnn_lr_accuray
-                self.writer.add_scalar(f'accuray/{mode}/crnn_lr_accuray', crnn_lr_accuray * 100, step)
-                print('crnn_lr_accuray: %.2f%%' % (crnn_lr_accuray * 100))
+                crnn_lr_accuracy = round(crnn_n_correct_lr_sum / cnt_images, 4)
+                metric_dict['crnn_lr_accuracy'] = crnn_lr_accuracy
+                self.writer.add_scalar(f'accuracy/{dataset_name}/crnn_lr_accuracy', crnn_lr_accuracy * 100, epoch)
+                print('crnn_lr_accuracy: %.2f%%' % (crnn_lr_accuracy * 100))
 
                 # CRNN LEV DIS LR
                 
-                crnn_lr_lev_dis_avg = round(sum(crnn_lr_lev_dis_list) / sum_images, 4)
-                metric_dict['crnn_lr_lev_dis_avg'] = crnn_lr_lev_dis_avg
-                self.writer.add_scalar(f'other/{mode}/crnn_lr_lev_dis_avg', crnn_lr_lev_dis_avg, step)
+                crnn_lr_lev_dis_relation_avg = round(sum(crnn_lr_lev_dis_relation_list) / cnt_images, 4)
+                metric_dict['crnn_lr_lev_dis_relation_avg'] = crnn_lr_lev_dis_relation_avg
+                self.writer.add_scalar(f'other/{dataset_name}/crnn_lr_lev_dis_relation_avg', crnn_lr_lev_dis_relation_avg, epoch)
 
                 # CTC ACC SR
 
-                ctc_sr_accuray = round(ctc_sr_n_correct / sum_images, 4)
-                metric_dict['ctc_sr_accuray'] = ctc_sr_accuray
-                self.writer.add_scalar(f'accuray/{mode}/ctc_sr_accuray', ctc_sr_accuray * 100, step)
-                print('ctc_sr_accuray: %.2f%%' % (ctc_sr_accuray * 100))
+                ctc_sr_accuracy = round(ctc_sr_n_correct_sum / cnt_images, 4)
+                metric_dict['ctc_sr_accuracy'] = ctc_sr_accuracy
+                self.writer.add_scalar(f'accuracy/{dataset_name}/ctc_sr_accuracy', ctc_sr_accuracy * 100, epoch)
+                print('ctc_sr_accuracy: %.2f%%' % (ctc_sr_accuracy * 100))
 
                 # CTC LEV DIS SR
                 
-                ctc_sr_lev_dis_avg = round(sum(ctc_sr_lev_dis_list) / sum_images, 4)
-                metric_dict['ctc_sr_lev_dis_avg'] = ctc_sr_lev_dis_avg
-                self.writer.add_scalar(f'other/{mode}/ctc_sr_lev_dis_avg', ctc_sr_lev_dis_avg, step)
+                ctc_sr_lev_dis_relation_avg = round(sum(ctc_sr_lev_dis_relation_list) / cnt_images, 4)
+                metric_dict['ctc_sr_lev_dis_relation_avg'] = ctc_sr_lev_dis_relation_avg
+                self.writer.add_scalar(f'other/{dataset_name}/ctc_sr_lev_dis_relation_avg', ctc_sr_lev_dis_relation_avg, epoch)
             else:
-                crnn_sr_accuray = 0
-                crnn_lr_accuray = 0
+                crnn_sr_accuracy = 0
+                crnn_lr_accuracy = 0
                 crnn_sr_lev_dis_avg = 0
                 crnn_lr_lev_dis_avg = 0
-                ctc_sr_accuray = 0
+                ctc_sr_accuracy = 0
                 ctc_sr_lev_dis_avg = 0
                 print('Ветка распознавания ВЫКЛЮЧЕНА. CRNN и CTC не соответствуют действительности\n')
 
             print('[{}]\t'
                   'loss {:.3f} | mse_loss {:.3f} | ctc_loss {:.3f}\t'
                   'PSNR {:.2f} | SSIM {:.4f}\t'
-                  'crnn_sr_accuray {:.2f} | crnn_lr_accuray {:.2f}\t'
-                  'crnn_sr_lev_dis_avg {:.2f} | crnn_lr_lev_dis_avg {:.2f}\t'
-                  'ctc_sr_accuray {:.2f} | ctc_sr_lev_dis_avg {:.2f}'
+                  'crnn_sr_accuracy {:.2f} | crnn_lr_accuracy {:.2f}\t'
+                  'crnn_sr_lev_dis_relation_avg {:.4f} | crnn_lr_lev_dis_relation_avg {:.4f}\t'
+                  'ctc_sr_accuracy {:.2f} | ctc_sr_lev_dis_relation_avg {:.4f}'
                   .format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                           loss, mse_loss, ctc_loss,
                           float(psnr_avg), float(ssim_avg),
-                          float(crnn_sr_accuray), float(crnn_lr_accuray),
-                          float(crnn_sr_lev_dis_avg), float(crnn_lr_lev_dis_avg),
-                          float(ctc_sr_accuray), float(ctc_sr_lev_dis_avg), ))
+                          float(crnn_sr_accuracy), float(crnn_lr_accuracy),
+                          float(crnn_sr_lev_dis_relation_avg), float(crnn_lr_lev_dis_relation_avg),
+                          float(ctc_sr_accuracy), float(ctc_sr_lev_dis_relation_avg), ))
 
             return metric_dict
 
@@ -606,7 +675,7 @@ class TextSR(base.TextBase):
                 #     p.requires_grad = False
                 model.eval()
             n_correct = 0
-            sum_images = 0
+            cnt_images = 0
             metric_dict = {'psnr': [], 'ssim': [], 'accuracy': 0.0, 'psnr_avg': 0.0, 'ssim_avg': 0.0}
             current_acc_dict = {test_dir: 0}
             time_begin = time.time()
@@ -656,7 +725,7 @@ class TextSR(base.TextBase):
                 for pred, target in zip(pred_str_sr, label_strs):
                     if str_filt(pred, 'lower') == str_filt(target, 'lower'):
                         n_correct += 1
-                sum_images += val_batch_size
+                cnt_images += val_batch_size
                 torch.cuda.empty_cache()
                 if i % 10 == 0:
                     print('Evaluation: [{}][{}/{}]\t'
@@ -666,8 +735,8 @@ class TextSR(base.TextBase):
             time_end = time.time()
             psnr_avg = sum(metric_dict['psnr']) / len(metric_dict['psnr'])
             ssim_avg = sum(metric_dict['ssim']) / len(metric_dict['ssim'])
-            acc = round(n_correct / sum_images, 4)
-            fps = sum_images / (time_end - time_begin)
+            acc = round(n_correct / cnt_images, 4)
+            fps = cnt_images / (time_end - time_begin)
             psnr_avg = round(psnr_avg.item(), 6)
             ssim_avg = round(ssim_avg.item(), 6)
             current_acc_dict[test_dir] = float(acc)
