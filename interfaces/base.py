@@ -195,11 +195,12 @@ class TextBase(object):
                 print('loading pre-trained model from %s ' % self.resume)
                 if self.cfg.ngpu == 1:
                     model.load_state_dict(torch.load(self.resume)['state_dict_G'], strict=False)
-                    optimizer = self.optimizer_init(model)
-                    optimizer.load_state_dict(torch.load(self.resume)['optimizer.state_dict()'], strict=False)
-                    if torch.load(self.resume)['scheduler'] is not None:
+                    if 'optimizer.state_dict()' in torch.load(self.resume) and torch.load(self.resume)['optimizer.state_dict()'] is not None:
+                        optimizer = self.optimizer_init(model)
+                        optimizer.load_state_dict(torch.load(self.resume)['optimizer.state_dict()'], strict=False)
+                    if 'scheduler' in torch.load(self.resume) and torch.load(self.resume)['scheduler'] is not None:
                         scheduler = self.scheduler_init(optimizer)
-                    if torch.load(self.resume)['scheduler_warmup'] is not None:
+                    if 'scheduler_warmup' in torch.load(self.resume) and torch.load(self.resume)['scheduler_warmup'] is not None:
                         scheduler_warmup = self.scheduler_warmup_init(optimizer)
                 else:
                     model.load_state_dict(
