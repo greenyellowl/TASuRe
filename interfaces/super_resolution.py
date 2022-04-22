@@ -36,10 +36,10 @@ class TextSR(base.TextBase):
         print('train started')
         cfg = self.cfg
 
-        scheduler_plateau_patience = 2
-        scheduler_plateau_cooldown = 4
-        scheduler_warmup_epoch = scheduler_plateau_cooldown
-        scheduler_plateau_factor = 0.8
+        # scheduler_plateau_patience = 2
+        # scheduler_plateau_cooldown = 4
+        # scheduler_warmup_epoch = scheduler_plateau_cooldown
+        # scheduler_plateau_factor = 0.8
 
         config_txt = f"""Возможно номальное обучение  \n
                          scale_factor: {cfg.scale_factor}  \n
@@ -66,25 +66,41 @@ class TextSR(base.TextBase):
                          acc_best_model: {cfg.acc_best_model}  \n
                          rec_best_model_save: {cfg.rec_best_model_save}  \n
                            \n
-                         scheduler_plateau_patience: {scheduler_plateau_patience}  \n
-                         scheduler_plateau_cooldown: {scheduler_plateau_cooldown}  \n
-                         scheduler_warmup_epoch: {scheduler_warmup_epoch}  \n
-                         scheduler_plateau_factor: {scheduler_plateau_factor}"""
+                         scheduler_plateau_patience: {cfg.scheduler_plateau_patience}  \n
+                         scheduler_plateau_cooldown: {cfg.scheduler_plateau_cooldown}  \n
+                         scheduler_warmup_epoch: {cfg.scheduler_plateau_cooldown}  \n
+                         scheduler_plateau_factor: {cfg.scheduler_plateau_factor}"""
         self.writer.add_text('config', config_txt)
 
         train_dataset, train_loader = self.get_train_data()
         test_val_dataset_list, test_val_loader_list = self.get_test_val_data()
         model_dict = self.generator_init()
-        model, image_crit, optimizer = model_dict['model'], model_dict['crit']
+        model, image_crit = model_dict['model'], model_dict['crit']
+
+        # optimizer
+
+        optimizer = model_dict['optimizer']
 
         if optimizer is None:
             optimizer = self.optimizer_init(model)
+
         aster, aster_info = self.CRNN_init()
 
         # scheduler
 
-        scheduler_plateau = ReduceLROnPlateau(optimizer, 'min', patience=scheduler_plateau_patience, cooldown=scheduler_plateau_cooldown, min_lr=1e-7, verbose=True, factor=scheduler_plateau_factor)
-        scheduler_warmup = WarmupScheduler(optimizer, warmup_epoch=scheduler_warmup_epoch)
+        scheduler_plateau = model_dict['scheduler']
+        scheduler_warmup = model_dict['scheduler_warmup']
+
+        if scheduler_plateau is None:
+            scheduler_plateau_patience = cfg.scheduler_plateau_patience
+            scheduler_plateau_cooldown = cfg.scheduler_plateau_cooldown
+            scheduler_plateau_factor = cfg.scheduler_plateau_factor
+            
+            scheduler_plateau = ReduceLROnPlateau(optimizer, 'min', patience=scheduler_plateau_patience, cooldown=scheduler_plateau_cooldown, min_lr=1e-7, verbose=True, factor=scheduler_plateau_factor)
+            
+        if scheduler_warmup is None:            
+            scheduler_warmup_epoch = cfg.scheduler_plateau_cooldown
+            scheduler_warmup = WarmupScheduler(optimizer, warmup_epoch=scheduler_warmup_epoch)
 
         best_history_follow_metric_values = dict()
         for val_loader in test_val_loader_list:
@@ -119,8 +135,9 @@ class TextSR(base.TextBase):
                 duration = end_time - start_time
                 spend_time += 'first block '+str(duration)+'  \n'
 
-                start_time = time.time() * 1000
                 # Получение данных из датасетов
+
+                start_time = time.time() * 1000
                 images_hr, images_lr, label_strs, dataset_name = data
                 images_lr = images_lr.to(self.device)
                 images_hr = images_hr.to(self.device)

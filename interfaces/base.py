@@ -3,6 +3,8 @@ from dataset.dataset import MyDataset
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+from pytorch_warmup_scheduler import WarmupScheduler # https://github.com/hysts/pytorch_warmup-scheduler
 from model import wangji
 from model import bicubic, srcnn, vdsr, srresnet, edsr, esrgan, rdn, lapsrn, tsrn
 from model import recognizer
@@ -56,7 +58,6 @@ class TextBase(object):
         self.FULL_VOCAB = blank_digits_dict | self.LETTERS | self.SYMBOLS | {"BOS": str(self.cfg.BOS), "EOS": str(self.cfg.EOS), "PAD": str(self.cfg.PAD)}
         
         self.FULL_VOCAB_LIST = blank_digits_list + list(self.LETTERS.keys()) + list(self.SYMBOLS.keys()) + ['bos', 'eos', 'pad']
-
 
 
     def get_train_data(self):
@@ -147,6 +148,9 @@ class TextBase(object):
 
     def generator_init(self):
         cfg = self.cfg
+        optimizer = None
+        scheduler = None
+        scheduler_warmup = None
         if self.args.arch == 'wangji':
             model = wangji.Wangji(cfg, scale_factor=cfg.scale_factor)
             image_crit = wangji_loss.WangjiLoss(args=self.args, cfg=self.cfg)
@@ -191,10 +195,19 @@ class TextBase(object):
                 print('loading pre-trained model from %s ' % self.resume)
                 if self.cfg.ngpu == 1:
                     model.load_state_dict(torch.load(self.resume)['state_dict_G'], strict=False)
+                    optimizer = self.optimizer_init(model)
+                    optimizer.load_state_dict(torch.load(self.resume)['optimizer.state_dict()'], strict=False)
+                    if torch.load(self.resume)['scheduler'] is not None:
+                        scheduler = self.scheduler_init(optimizer)
+                    if torch.load(self.resume)['scheduler_warmup'] is not None:
+                        scheduler_warmup = self.scheduler_warmup_init(optimizer)
                 else:
                     model.load_state_dict(
                         {'module.' + k: v for k, v in torch.load(self.resume)['state_dict_G'].items()})
-        return {'model': model, 'crit': image_crit}
+                    optimizer = self.optimizer_init(model)
+                    optimizer.load_state_dict(
+                        {'module.' + k: v for k, v in torch.load(self.resume)['optimizer.state_dict()'].items()})
+        return {'model': model, 'crit': image_crit, 'optimizer': optimizer, 'scheduler': scheduler, 'scheduler_warmup': scheduler_warmup}
 
 
     def optimizer_init(self, model):
@@ -202,6 +215,22 @@ class TextBase(object):
         optimizer = optim.Adam(model.parameters(), lr=cfg.lr, betas=(cfg.beta1, 0.999), amsgrad=True)
         # optimizer = optim.SGD(model.parameters(), lr=cfg.lr, momentum=0)
         return optimizer
+
+
+    def scheduler_init(self, optimizer):
+        cfg = self.cfg
+        scheduler_plateau_patience = cfg.scheduler_plateau_patience
+        scheduler_plateau_cooldown = cfg.scheduler_plateau_cooldown
+        scheduler_plateau_factor = cfg.scheduler_plateau_factor
+        scheduler = ReduceLROnPlateau(optimizer, 'min', patience=scheduler_plateau_patience, cooldown=scheduler_plateau_cooldown, min_lr=1e-7, verbose=True, factor=scheduler_plateau_factor)
+        return scheduler
+
+
+    def scheduler_warmup_init(self, optimizer):
+        cfg = self.cfg
+        scheduler_warmup_epoch = cfg.scheduler_plateau_cooldown
+        scheduler_warmup = WarmupScheduler(optimizer, warmup_epoch=scheduler_warmup_epoch)
+        return scheduler_warmup
 
 
     def CRNN_init(self):
@@ -219,19 +248,23 @@ class TextBase(object):
         self.writer = SummaryWriter('checkpoint/{}'.format(self.log_dir_name))
 
 
-    def save_checkpoint(self, netG, epoch, iters, best_acc_dict, best_model_info, is_best, converge_list, exp_name):
+    def save_checkpoint(self, netG, optimizer, epoch, iters, follow_metric_name, best_history_metric_values, best_model_info, is_best, exp_name, scheduler=None, scheduler_warmup=None):
         # ckpt_path = os.path.join('checkpoint', exp_name, self.vis_dir)
         ckpt_path = os.path.join('checkpoint', exp_name)
         if not os.path.exists(ckpt_path):
             os.mkdir(ckpt_path)
         save_dict = {
             'state_dict_G': netG.state_dict(),
+            'optimizer.state_dict()': optimizer.state_dict(),
+            'scheduler': scheduler.state_dict() if scheduler is not None else None,
+            'scheduler_warmup': scheduler_warmup.state_dict() if scheduler_warmup is not None else None,
             'info': {'arch': self.args.arch, 'iters': iters, 'epochs': epoch, 'batch_size': self.batch_size,
                      'up_scale_factor': self.scale_factor},
-            'best_history_res': best_acc_dict,
+            'follow_metric_name': follow_metric_name,
+            'best_history_res': best_history_metric_values,
             'best_model_info': best_model_info,
             'param_num': sum([param.nelement() for param in netG.parameters()]),
-            'converge': converge_list
+            # 'converge': converge_list
         }
         if is_best:
             torch.save(save_dict, os.path.join(ckpt_path, 'model_best.pth'))
