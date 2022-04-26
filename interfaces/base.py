@@ -246,6 +246,16 @@ class TextBase(object):
         self.writer = SummaryWriter('checkpoint/{}'.format(self.log_dir_name))
 
 
+    def make_multi_writer(self):
+        self.multi_writer = SummaryWriter('checkpoint/{}'.format(self.log_dir_name))
+        layout = {
+            "MultiGraphs": {
+                "MultiLoss": ["Multiline", ["MultiLoss/train", "MultiLoss/validation"]]
+            }
+        }
+        self.multi_writer.add_custom_scalars(layout)
+
+
     def save_checkpoint(self, model, optimizer, epoch, iters, follow_metric_name, best_history_metric_values, best_model_info, is_best, exp_name, scheduler, scheduler_warmup):
         # ckpt_path = os.path.join('checkpoint', exp_name, self.vis_dir)
         ckpt_path = os.path.join('checkpoint', exp_name)

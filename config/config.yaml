@@ -112,7 +112,7 @@ acc_best_model: 'ctc' # ctc, crnn. По какому распознавател�
 rec_best_model_save: 'lev_dis' # lev_dis, acc По какой метрике сохранять лучшую модель распознавания
 recognizer: 'lstm' # transformer или lstm.
 recognizer_input: 'att' # att, convnext. Вход распознавателя
-recognizer_input_convnext: 1
+recognizer_input_convnext: 1 # 1, 2
 
 fp16: True
 

@@ -50,6 +50,7 @@ class TextSR(base.TextBase):
                          lr: {cfg.lr}  \n
                          scale_factor: {cfg.scale_factor}  \n
                          workers: {cfg.workers}  \n
+                         fp16: {cfg.fp16}  \n
                            \n
                          resume: {cfg.resume}  \n
                            \n
@@ -212,6 +213,8 @@ class TextSR(base.TextBase):
                     self.writer.add_scalar('loss/loss', loss, iters)
                     self.writer.add_scalar('loss/mse_loss', mse_loss, iters)
                     self.writer.add_scalar('loss/ctc_loss', ctc_loss, iters)
+                
+                    self.multi_writer.add_scalar('Multiloss/train', loss, iters)
                 else:
                     raise exceptions.WrongRecognizer
                 end_time = time.time() * 1000
@@ -635,9 +638,10 @@ class TextSR(base.TextBase):
 
                 if self.cfg.recognizer == 'transformer':
                     loss, mse_loss, attention_loss, recognition_loss, word_decoder_result = image_crit(images_sr, images_hr, label_strs)
-                    
                 elif self.cfg.recognizer == 'lstm':
                     loss, mse_loss, ctc_loss = image_crit(images_sr, tag_scores, images_hr, label_strs)
+                
+                    self.multi_writer.add_scalar('Multiloss/validation', loss, iters)
                 else:
                     raise exceptions.WrongRecognizer
 
