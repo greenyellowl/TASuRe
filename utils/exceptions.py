@@ -9,3 +9,7 @@ class WrongMetrucForSaveBestRec(Exception):
 class WrongModelForSaveBestRec(Exception):
     """Something wrong with acc_best_model. Check acc_best_model in config. It could be 'ctc' or 'crnn'"""
     pass
+
+class WrongRecognizer(Exception):
+    """Something wrong with recognizer. Check recognizer in config. It could be 'transformer' or 'lstm'"""
+    pass
