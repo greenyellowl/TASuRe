@@ -9,6 +9,7 @@ import string
 from IPython import embed
 
 import matplotlib.pyplot as plt
+from string import ascii_uppercase, ascii_lowercase
 
 
 def str_filt(str_, voc_type):
@@ -39,6 +40,35 @@ def show_image(images, ind):
     plt.imshow(torch.moveaxis(img_un.cpu(), 0, 2))
     plt.show()
 
+def get_vocab(cfg):
+    blank_digits_list = []
+    blank_digits_dict = {'BLANK': '0'}
+    blank_digits_list.append("_")
+    for i in range (1,10):
+        blank_digits_list.append(str(i))
+        blank_digits_dict[str(i)] = str(i)
+    blank_digits_list.append(str(0))
+    blank_digits_dict[str(0)] = str(10)
+
+    if cfg.letters == 'all':
+        Letters = {letter: str(index) for index, letter in enumerate(ascii_uppercase + ascii_lowercase, start=11)}
+    elif cfg.letters == 'lower':
+        Letters = {letter: str(index) for index, letter in enumerate(ascii_lowercase, start=11)}
+    elif cfg.letters == 'upper':
+        Letters = {letter: str(index) for index, letter in enumerate(ascii_uppercase, start=11)}
+    Symbols = ['+', '|', '[', '%', ':', ',', '>', '@', '$', ')', '©', '-', ';', '!', '&', '?', '.',
+                ']', '/', '#', '=', '‰', '(', '\'', '\"', ' ']
+
+    Symbols = {symbols: str(index) for index, symbols in enumerate(Symbols, start=int(Letters[list(Letters)[-1]]) + 1)}
+    
+    BOS_ind = str(int(Symbols[list(Symbols)[-1]])+1)
+    EOS_ind = str(int(Symbols[list(Symbols)[-1]])+2)
+    PAD_ind = str(int(Symbols[list(Symbols)[-1]])+3)
+    FullVocab = blank_digits_dict | Letters | Symbols | {"BOS": BOS_ind, "EOS": EOS_ind, "PAD": PAD_ind}
+    
+    FullVocabList = blank_digits_list + list(Letters.keys()) + list(Symbols.keys()) + ['BOS', 'EOS', 'PAD']
+
+    return Letters, Symbols, FullVocab, FullVocabList
 
 class strLabelConverter(object):
     """Convert between str and label.
