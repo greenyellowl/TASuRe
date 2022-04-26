@@ -143,7 +143,7 @@ class Wangji(nn.Module):
                 input_size = 16*dims[2]
             elif self.cfg.recognizer_input == 'convnext':
                 # input_size = dims[self.cfg.recognizer_input_convnext]
-                input_size = 768 if self.cfg.recognizer_input_convnext == 1 else 384
+                input_size = dims[2] if self.cfg.recognizer_input_convnext == 1 else dims[1]
                 # self.last_convNext_block = eval("y_block"+str(self.cfg.recognizer_input_convnext))
             hidden_size = input_size
             num_layers = 2
