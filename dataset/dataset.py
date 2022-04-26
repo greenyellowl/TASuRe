@@ -42,14 +42,22 @@ class MyDataset():
         A.augmentations.transforms.Normalize(self.cfg.norm_mean, self.cfg.norm_std),
         A.pytorch.transforms.ToTensorV2(),
         ])
-        transform_lr = A.Compose([
-        A.augmentations.geometric.resize.Resize(self.cfg.height,self.cfg.width),
-        A.ImageCompression(p=0.5, quality_lower=50, quality_upper=100),
-        A.Blur(p=0.5),
-        A.augmentations.transforms.Normalize(self.cfg.norm_mean, self.cfg.norm_std),
-        A.pytorch.transforms.ToTensorV2(),
-        ])
-        transforms = {'transform_init':transform, 'transform_hr':transform_hr, 'transform_lr':transform_lr}
+        if not self.isEval:
+            transform_lr = A.Compose([
+            A.augmentations.geometric.resize.Resize(self.cfg.height,self.cfg.width),
+            A.ImageCompression(p=0.5, quality_lower=50, quality_upper=100),
+            A.Blur(p=0.5),
+            A.augmentations.transforms.Normalize(self.cfg.norm_mean, self.cfg.norm_std),
+            A.pytorch.transforms.ToTensorV2(),
+            ])
+            transforms = {'transform_init':transform, 'transform_hr':transform_hr, 'transform_lr':transform_lr}
+        else:
+            transform_lr = A.Compose([
+            A.augmentations.geometric.resize.Resize(self.cfg.height,self.cfg.width),
+            A.augmentations.transforms.Normalize(self.cfg.norm_mean, self.cfg.norm_std),
+            A.pytorch.transforms.ToTensorV2(),
+            ])
+            transforms = {'transform_init':None, 'transform_hr':transform_hr, 'transform_lr':transform_lr}
 
 
         # Загрузка датасета
@@ -84,14 +92,14 @@ class ICDARImageDataset(Dataset):
         # print(image.shape)
         # print(image.shape)
         # print(image)
-        image = np.moveaxis(image, 0, -1)
+        if self.transforms:
+            image = np.moveaxis(image, 0, -1)
         label = str(self.img_labels.iloc[idx, 1])
         # label = label
         # plt.imshow(image)
         # plt.show()
         if self.transforms:
-            image_tr = self.transforms['transform_init'](image=image)
-            image_tr = image_tr['image']
+            image_tr = self.transforms['transform_init'](image=image)['image'] if self.transforms['transform_init'] else image
             image_hr = self.transforms['transform_hr'](image=image_tr)
             image_lr = self.transforms['transform_lr'](image=image_tr)
         if self.target_transform:
@@ -104,7 +112,7 @@ class ICDARImageDataset(Dataset):
 
 
 class lmdbDataset(Dataset):
-    def __init__(self, root=None, voc_type='upper', max_len=32, test=False, val=False, transforms=None):
+    def __init__(self, root=None, voc_type='lower', max_len=32, test=False, val=False, transforms=None):
         super(lmdbDataset, self).__init__()
 
         self.root = root
@@ -174,20 +182,20 @@ class lmdbDataset(Dataset):
 
         # label_str = self.str_filt(word, self.voc_type)
         # img.show()
-        img_np = np.array(img)
+        if self.transforms:
+            img_np = np.array(img)
         # img_np_ma = np.moveaxis(img_np, -1, 0)
         if self.transforms:
-            image_tr = self.transforms['transform_init'](image=img_np)
-            image_tr = image_tr['image']
-            image_hr = self.transforms['transform_hr'](image=image_tr)
-            image_lr = self.transforms['transform_lr'](image=image_tr)
+            image_tr = self.transforms['transform_init'](image=img_np)['image'] if self.transforms['transform_init'] else img_np
+            image_hr = self.transforms['transform_hr'](image=image_tr)['image']
+            image_lr = self.transforms['transform_lr'](image=image_tr)['image']
 
         # un = UnNormalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
         # img_un = un(image_hr['image'])
         # plt.imshow(torch.moveaxis(img_un,0,2))
         # plt.show()
 
-        return image_hr['image'], image_lr['image'], word, self.dataset_name
+        return image_hr, image_lr, word, self.dataset_name
 
     @staticmethod
     def str_filt(str_, voc_type):

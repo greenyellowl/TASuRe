@@ -10,10 +10,10 @@ from model import bicubic, srcnn, vdsr, srresnet, edsr, esrgan, rdn, lapsrn, tsr
 from model import recognizer
 from model import moran
 from model import crnn
-from loss import gradient_loss, percptual_loss, image_loss, wangji_loss
+from loss import gradient_loss, percptual_loss, image_loss, wangji_loss, text_focus_loss
 from torch.utils.tensorboard import SummaryWriter
 from utils.labelmaps import get_vocabulary, labels2strs
-from utils import util, ssim_psnr, utils_moran, utils_crnn
+from utils import util, ssim_psnr, utils_moran, utils_crnn, exceptions
 import os
 import logging
 from datetime import datetime
@@ -39,25 +39,7 @@ class TextBase(object):
         self.logging = logging
         self.scale_factor = self.cfg.scale_factor
 
-
-        self.LETTERS = {letter: str(index) for index, letter in enumerate(ascii_uppercase + ascii_lowercase, start=11)}
-        SYMBOLS = ['+', '|', '[', '%', ':', ',', '>', '@', '$', ')', '©', '-', ';', '!', '&', '?', '.',
-                ']', '/', '#', '=', '‰', '(', '\'', '\"', ' ']
-
-        self.SYMBOLS = {symbols: str(index) for index, symbols in enumerate(SYMBOLS, start=int(self.LETTERS["z"]) + 1)}
-
-        blank_digits_list = []
-        blank_digits_dict = {'BLANK': '0'}
-        blank_digits_list.append("_")
-        for i in range (1,10):
-            blank_digits_list.append(str(i))
-            blank_digits_dict[str(i)] = str(i)
-        blank_digits_list.append(str(0))
-        blank_digits_dict[str(0)] = str(10)
-        
-        self.FULL_VOCAB = blank_digits_dict | self.LETTERS | self.SYMBOLS | {"BOS": str(self.cfg.BOS), "EOS": str(self.cfg.EOS), "PAD": str(self.cfg.PAD)}
-        
-        self.FULL_VOCAB_LIST = blank_digits_list + list(self.LETTERS.keys()) + list(self.SYMBOLS.keys()) + ['bos', 'eos', 'pad']
+        self.Letters, self.Symbols, self.FullVocab, self.FullVocabList = util.get_vocab(self.cfg)
 
 
     def get_train_data(self):
@@ -92,7 +74,7 @@ class TextBase(object):
             raise TypeError('check trainRoot')
 
         train_loader = torch.utils.data.DataLoader(
-            train_dataset, batch_size=self.batch_size,
+            train_dataset, batch_size=min(self.batch_size, len(train_dataset)),
             shuffle=True, num_workers=int(cfg.workers),
             drop_last=True, pin_memory=True)
         return train_dataset, train_loader
@@ -115,13 +97,14 @@ class TextBase(object):
                                         isTextZoom=False,
                                         data_dir=data_dir_,
                                         data_annotations_file=data_annotations_file,
+                                        isEval=True,
                                         # voc_type=cfg.voc_type,
                                         # max_len=cfg.max_len,
                                         ).load_dataset()
                     dataset_list.append(test_val_dataset) # создаётся объект класса loadDataset
 
                     test_val_loader = torch.utils.data.DataLoader(
-                        test_val_dataset, batch_size=self.batch_size,
+                        test_val_dataset, batch_size=min(self.batch_size, len(test_val_dataset)),
                         shuffle=False, num_workers=int(cfg.workers),drop_last=True, pin_memory=True)
                     loader_list.append(test_val_loader)
 
@@ -131,13 +114,14 @@ class TextBase(object):
                     test_val_dataset = self.load_dataset(cfg=cfg,
                                           isTextZoom=True,
                                           data_dir=data_dir_,
+                                          isEval=True,
                                           # voc_type=cfg.voc_type,
                                           # max_len=cfg.max_len,
                                           ).load_dataset()
                     dataset_list.append(test_val_dataset) # создаётся объект класса loadDataset
 
                     test_val_loader = torch.utils.data.DataLoader(
-                        test_val_dataset, batch_size=self.batch_size,
+                        test_val_dataset, batch_size=min(self.batch_size, len(test_val_dataset)),
                         shuffle=False, num_workers=int(cfg.workers),drop_last=True, pin_memory=True)
                     loader_list.append(test_val_loader)
         else:
@@ -153,7 +137,13 @@ class TextBase(object):
         scheduler_warmup = None
         if self.args.arch == 'wangji':
             model = wangji.Wangji(cfg, scale_factor=cfg.scale_factor)
-            image_crit = wangji_loss.WangjiLoss(args=self.args, cfg=self.cfg)
+            epoch = 0
+            if self.cfg.recognizer == 'transformer':
+                image_crit = text_focus_loss.TextFocusLoss(self.args, cfg=self.cfg)
+            elif self.cfg.recognizer == 'lstm':
+                image_crit = wangji_loss.WangjiLoss(args=self.args, cfg=self.cfg)
+            else:
+                raise exceptions.WrongRecognizer            
         elif self.args.arch == 'tsrn':
             model = tsrn.TSRN(scale_factor=cfg.scale_factor, width=cfg.width, height=cfg.height,
                               STN=self.args.STN, mask=self.mask, srb_nums=self.args.srb, hidden_units=self.args.hd_u)
@@ -194,21 +184,26 @@ class TextBase(object):
             if self.resume != '':
                 print('loading pre-trained model from %s ' % self.resume)
                 if self.cfg.ngpu == 1:
-                    model.load_state_dict(torch.load(self.resume)['state_dict_G'], strict=False)
-                    if 'optimizer.state_dict()' in torch.load(self.resume) and torch.load(self.resume)['optimizer.state_dict()'] is not None:
+                    checkpoint = torch.load(self.resume)
+                    model.load_state_dict(checkpoint['model'], strict=False)
+                    epoch = checkpoint['info']['epochs']
+                    if 'optimizer' in checkpoint and checkpoint['optimizer'] is not None:
                         optimizer = self.optimizer_init(model)
-                        optimizer.load_state_dict(torch.load(self.resume)['optimizer.state_dict()'], strict=False)
-                    if 'scheduler' in torch.load(self.resume) and torch.load(self.resume)['scheduler'] is not None:
+                        optimizer.load_state_dict(checkpoint['optimizer'])
+                    if 'scheduler' in checkpoint and checkpoint['scheduler'] is not None:
                         scheduler = self.scheduler_init(optimizer)
-                    if 'scheduler_warmup' in torch.load(self.resume) and torch.load(self.resume)['scheduler_warmup'] is not None:
-                        scheduler_warmup = self.scheduler_warmup_init(optimizer)
+                        scheduler.load_state_dict(checkpoint['scheduler'])
+                    if 'scheduler_warmup' in checkpoint and checkpoint['scheduler_warmup'] is not None:
+                        scheduler_warmup = self.scheduler_warmup_init(optimizer, epoch)
+                        scheduler_warmup.load_state_dict(checkpoint['scheduler_warmup'])
+                        epoch += 1
                 else:
                     model.load_state_dict(
-                        {'module.' + k: v for k, v in torch.load(self.resume)['state_dict_G'].items()})
+                        {'module.' + k: v for k, v in checkpoint['model'].items()})
                     optimizer = self.optimizer_init(model)
                     optimizer.load_state_dict(
-                        {'module.' + k: v for k, v in torch.load(self.resume)['optimizer.state_dict()'].items()})
-        return {'model': model, 'crit': image_crit, 'optimizer': optimizer, 'scheduler': scheduler, 'scheduler_warmup': scheduler_warmup}
+                        {'module.' + k: v for k, v in checkpoint['optimizer'].items()})
+        return {'model': model, 'crit': image_crit, 'optimizer': optimizer, 'scheduler': scheduler, 'scheduler_warmup': scheduler_warmup, 'last_epoch':epoch}
 
 
     def optimizer_init(self, model):
@@ -223,14 +218,16 @@ class TextBase(object):
         scheduler_plateau_patience = cfg.scheduler_plateau_patience
         scheduler_plateau_cooldown = cfg.scheduler_plateau_cooldown
         scheduler_plateau_factor = cfg.scheduler_plateau_factor
-        scheduler = ReduceLROnPlateau(optimizer, 'min', patience=scheduler_plateau_patience, cooldown=scheduler_plateau_cooldown, min_lr=1e-7, verbose=True, factor=scheduler_plateau_factor)
+        scheduler = ReduceLROnPlateau(optimizer, 'min',
+            patience=scheduler_plateau_patience, cooldown=scheduler_plateau_cooldown,
+            min_lr=float(self.cfg.min_lr), verbose=True, factor=scheduler_plateau_factor)
         return scheduler
 
 
-    def scheduler_warmup_init(self, optimizer):
+    def scheduler_warmup_init(self, optimizer, epoch):
         cfg = self.cfg
         scheduler_warmup_epoch = cfg.scheduler_plateau_cooldown
-        scheduler_warmup = WarmupScheduler(optimizer, warmup_epoch=scheduler_warmup_epoch)
+        scheduler_warmup = WarmupScheduler(optimizer, warmup_epoch=scheduler_warmup_epoch, last_epoch=epoch)
         return scheduler_warmup
 
 
@@ -249,22 +246,23 @@ class TextBase(object):
         self.writer = SummaryWriter('checkpoint/{}'.format(self.log_dir_name))
 
 
-    def save_checkpoint(self, netG, optimizer, epoch, iters, follow_metric_name, best_history_metric_values, best_model_info, is_best, exp_name, scheduler=None, scheduler_warmup=None):
+    def save_checkpoint(self, model, optimizer, epoch, iters, follow_metric_name, best_history_metric_values, best_model_info, is_best, exp_name, scheduler, scheduler_warmup):
         # ckpt_path = os.path.join('checkpoint', exp_name, self.vis_dir)
         ckpt_path = os.path.join('checkpoint', exp_name)
         if not os.path.exists(ckpt_path):
             os.mkdir(ckpt_path)
         save_dict = {
-            'state_dict_G': netG.state_dict(),
-            'optimizer.state_dict()': optimizer.state_dict(),
-            'scheduler': scheduler.state_dict() if scheduler is not None else None,
-            'scheduler_warmup': scheduler_warmup.state_dict() if scheduler_warmup is not None else None,
+            'model': model.state_dict(),
+            'optimizer': optimizer.state_dict(),
+            'scheduler': scheduler.state_dict(),
+            'scheduler_warmup': scheduler_warmup.state_dict(),
             'info': {'arch': self.args.arch, 'iters': iters, 'epochs': epoch, 'batch_size': self.batch_size,
                      'up_scale_factor': self.scale_factor},
             'follow_metric_name': follow_metric_name,
             'best_history_res': best_history_metric_values,
             'best_model_info': best_model_info,
-            'param_num': sum([param.nelement() for param in netG.parameters()]),
+            'param_num': sum([param.nelement() for param in model.parameters()]),
+            'cfg': self.cfg,
             # 'converge': converge_list
         }
         if is_best:

@@ -4,8 +4,10 @@ import torch.nn.functional as F
 import math
 from einops import rearrange
 import numpy as np
-
+from utils import exceptions
 from timm.models.layers import trunc_normal_, DropPath
+
+from model.transformer import Transformer
 
 
 class Wangji(nn.Module):
@@ -15,13 +17,13 @@ class Wangji(nn.Module):
         self.cfg = cfg
 
         if self.cfg.convNext_type == 'T':
-                depths = [3, 3, 9]
-                dims = [96, 192, 384]
-                finalConv_in_channels = 3
+            depths = [3, 3, 9]
+            dims = [96, 192, 384]
+            finalConv_in_channels = 3
         elif self.cfg.convNext_type == 'S':
-                depths = [3, 3, 27]
-                dims = [96, 192, 384]
-                finalConv_in_channels = 3
+            depths = [3, 3, 27]
+            dims = [96, 192, 384]
+            finalConv_in_channels = 3
         # elif self.cfg.convNext_type == 'B': # Не сработает, т.к. нужно, чтобы dims[2] делилось на 3.
         #     depths = [3, 3, 27]
         #     dims = [128, 256, 512]
@@ -35,32 +37,9 @@ class Wangji(nn.Module):
         else:
             depths = [3, 3, 9]
             dims = [96, 192, 384]  
+        self.dims = dims
 
-        if self.cfg.enable_sr or self.cfg.train_after_sr:
-            #LongSkip
-
-            self.convLS0 = nn.Conv2d(in_channels = in_chans, out_channels = 32, kernel_size = 2, stride=[2,3], dilation=[1,3])
-            self.convLS1 = nn.Conv2d(in_channels = 32, out_channels = (dims[2] * scale_factor - dims[2]), kernel_size = [2,3], stride=[4,2], dilation=3)
-
-            #Blue Branch
-
-            self.convBlue1 = nn.Conv2d(in_channels = dims[0], out_channels = dims[1], kernel_size = 2, padding=[0,1], stride=2, dilation=[1,3])
-            self.convBlue2 = nn.Conv2d(in_channels=dims[1], out_channels=dims[2], kernel_size=2, padding=[0, 1], stride=2, dilation=[1, 3])
-
-            # Upsampler from HAN https://paperswithcode.com/paper/a-convnet-for-the-2020s
-
-            # conv_HAN = default_conv_form_HAN
-            # n_feats = dims[2] * scale_factor
-            # n_colors = 3
-            # ks = 3
-            # upsample = [Upsampler(conv_HAN, scale_factor, n_feats, act=False),
-            #             conv_HAN(n_feats, n_colors, ks)]
-            #
-            # self.upsample = nn.Sequential(*upsample)
-            self.upsample = sub_pixel(scale_factor)
-            
-            self.finalConv = nn.Conv2d(in_channels=finalConv_in_channels, out_channels=3, kernel_size=3, padding=1, bias=True)                  
-            
+        if self.cfg.enable_ConvNext or self.cfg.train_after_sr:
             #ConvNext (Red Branch) https://paperswithcode.com/paper/a-convnet-for-the-2020s
 
             drop_path_rate = 0.
@@ -88,7 +67,39 @@ class Wangji(nn.Module):
                 )
                 self.convnext_blocks.append(stage)
                 cur += depths[i]
+            
+            if self.cfg.freeze_convnext:
+                for param in self.convnext_downsample_layers.parameters():
+                    param.requires_grad = False
 
+                for param in self.convnext_blocks.parameters():
+                    param.requires_grad = False
+
+        
+        if self.cfg.enable_sr or self.cfg.train_after_sr:
+            #LongSkip
+
+            self.convLS0 = nn.Conv2d(in_channels = in_chans, out_channels = 32, kernel_size = 2, stride=[2,3], dilation=[1,3])
+            self.convLS1 = nn.Conv2d(in_channels = 32, out_channels = (dims[2] * scale_factor - dims[2]), kernel_size = [2,3], stride=[4,2], dilation=3)
+
+            #Blue Branch
+
+            self.convBlue1 = nn.Conv2d(in_channels = dims[0], out_channels = dims[1], kernel_size = 2, padding=[0,1], stride=2, dilation=[1,3])
+            self.convBlue2 = nn.Conv2d(in_channels=dims[1], out_channels=dims[2], kernel_size=2, padding=[0, 1], stride=2, dilation=[1, 3])
+
+            # Upsampler from HAN https://paperswithcode.com/paper/a-convnet-for-the-2020s
+
+            # conv_HAN = default_conv_form_HAN
+            # n_feats = dims[2] * scale_factor
+            # n_colors = 3
+            # ks = 3
+            # upsample = [Upsampler(conv_HAN, scale_factor, n_feats, act=False),
+            #             conv_HAN(n_feats, n_colors, ks)]
+            #
+            # self.upsample = nn.Sequential(*upsample)
+            self.upsample = sub_pixel(scale_factor)
+            
+            self.finalConv = nn.Conv2d(in_channels=finalConv_in_channels, out_channels=3, kernel_size=3, padding=1, bias=True)
 
             if self.cfg.freeze_sr:
                 self.convLS0.weight.requires_grad = False
@@ -105,15 +116,9 @@ class Wangji(nn.Module):
 
                 self.finalConv.weight.requires_grad = False
                 self.finalConv.bias.requires_grad = False
-            if self.cfg.freeze_convnext:
-                for param in self.convnext_downsample_layers.parameters():
-                    param.requires_grad = False
-
-                for param in self.convnext_blocks.parameters():
-                    param.requires_grad = False
         
         
-        if self.cfg.enable_rec:
+        if self.cfg.enable_rec or not self.cfg.recognizer == 'transformer':
             #PreProcessing Branch
 
             # self.convPreProc00 = nn.Conv2d(in_channels = dims[0], out_channels = 32, kernel_size = 3, padding=1, stride=2)
@@ -134,14 +139,24 @@ class Wangji(nn.Module):
 
             # LSTM
 
-            input_size = 16*dims[2]
+            if self.cfg.recognizer_input == 'att':
+                input_size = 16*dims[2]
+            elif self.cfg.recognizer_input == 'convnext':
+                # input_size = dims[self.cfg.recognizer_input_convnext]
+                input_size = 768 if self.cfg.recognizer_input_convnext == 1 else 384
+                # self.last_convNext_block = eval("y_block"+str(self.cfg.recognizer_input_convnext))
             hidden_size = input_size
-            num_layers = 1
+            num_layers = 2
             batch_first = True
             bidirectional = False
             tagset_size  = self.cfg.FULL_VOCAB_SIZE
 
-            self.LSTM = LSTMTagger(input_size, hidden_size, num_layers, batch_first, bidirectional, tagset_size)
+            if cfg.recognizer == 'lstm':
+                self.LSTM = LSTMTagger(input_size, hidden_size, num_layers, batch_first, bidirectional, tagset_size)
+            elif cfg.recognizer == 'transformer':
+                self.build_up_transformer()
+            else:
+                raise exceptions.WrongRecognizer
 
             if self.cfg.freeze_rec:
                 self.convPreProc0.weight.requires_grad = False
@@ -158,58 +173,88 @@ class Wangji(nn.Module):
 
                 for param in self.LSTM.parameters():
                     param.requires_grad = False
+
+                for param in self.transformer.parameters():
+                    param.requires_grad = False
                 
 
+    def build_up_transformer(self):
+        transformer = Transformer().cuda()
+        transformer = nn.DataParallel(transformer)
+        transformer.load_state_dict(torch.load('/home/helen/code/TextSR/pretrained/pretrain_transformer.pth'))
+        transformer.eval()
+        self.transformer = transformer
+    
+    
     def forward(self, x):
-        img = x
+        # img = x
+        batch_size = x.shape[0]
 
-        # Red ConvNext Branch
+        if self.cfg.enable_ConvNext:
+            # Red ConvNext Branch
 
-        y_downsample0 = self.convnext_downsample_layers[0](x)
-        y_block0 = self.convnext_blocks[0](y_downsample0)
+            y_downsample0 = self.convnext_downsample_layers[0](x)
+            y_block0 = self.convnext_blocks[0](y_downsample0)
 
-        y_downsample1 = self.convnext_downsample_layers[1](y_block0)
-        y_block1 = self.convnext_blocks[1](y_downsample1)
+            y_downsample1 = self.convnext_downsample_layers[1](y_block0)
+            y_block1 = self.convnext_blocks[1](y_downsample1)
 
-        y_downsample2 = self.convnext_downsample_layers[2](y_block1)
-        y_block2 = self.convnext_blocks[2](y_downsample2)
+            if self.cfg.recognizer_input == 'att' or self.cfg.enable_sr or \
+                (self.cfg.recognizer_input == 'convnext' and self.cfg.recognizer_input_convnext == 2):
+                y_downsample2 = self.convnext_downsample_layers[2](y_block1)
+                y_block2 = self.convnext_blocks[2](y_downsample2)
         
-        # y_sr = None
-        # if self.cfg.enable_sr:
-        y_green_1 = self.convLS0(x)
-        y_green_2 = self.convLS1(y_green_1)
+        y_sr = None
+        if self.cfg.enable_sr:
+            y_green_1 = self.convLS0(x)
+            y_green_2 = self.convLS1(y_green_1)
+            del y_green_1
 
-        y_blue_conv1 = self.convBlue1(y_block0)
-        y_summ1 = y_blue_conv1 + y_block1
-        
-        y_blue_conv2 = self.convBlue2(y_summ1)
-        y_summ2 = y_blue_conv2 + y_block2
+            y_blue_conv1 = self.convBlue1(y_block0)
+            y_summ1 = y_blue_conv1 + y_block1
+            del y_blue_conv1
+            
+            y_blue_conv2 = self.convBlue2(y_summ1)
+            y_summ2 = y_blue_conv2 + y_block2
+            del y_summ1
+            del y_blue_conv2
 
-        y_concat1 = torch.cat([y_summ2, y_green_2], 1)
+            y_concat1 = torch.cat([y_summ2, y_green_2], 1)
+            del y_green_2
 
-        y_upsample = self.upsample(y_concat1)
-        y_sr = self.finalConv(y_upsample)
+            y_upsample = self.upsample(y_concat1)
+            y_sr = self.finalConv(y_upsample)
 
 
         tag_scores = None
-        if self.cfg.enable_rec:
-            y_convPreProc0 = self.convPreProc0(y_block0)
-            y_convPreProc1 = self.convPreProc1(y_block1)
-            y_convPreProc2 = self.convPreProc2(y_block2)
+        if self.cfg.enable_rec or not self.cfg.recognizer == 'transformer':
+            if self.cfg.recognizer_input == 'convnext':
+                # block = eval("y_block"+str(self.cfg.recognizer_input_convnext))
+                block = y_block1 if self.cfg.recognizer_input_convnext == 1 else y_block2
+                vector_len = int(self.dims[self.cfg.recognizer_input_convnext] * block.shape[2] * block.shape[3] / 32)
+                y_flat = torch.zeros(batch_size, 32, vector_len, dtype=torch.float32, device=block.device)
+                len_slice = int(self.dims[self.cfg.recognizer_input_convnext]/32)
+                for i in range(32):
+                    vector = block[:,i*len_slice:(i+1)*len_slice,:,:]
+                    y_flat[:,i] = rearrange(vector, 'b c h w -> b (c h w)')
+            elif self.cfg.recognizer_input == 'att':
+                y_convPreProc0 = self.convPreProc0(y_block0)
+                y_convPreProc1 = self.convPreProc1(y_block1)
+                y_convPreProc2 = self.convPreProc2(y_block2)
 
-            y_concat2 = torch.stack([y_convPreProc0, y_convPreProc1, y_convPreProc2], 1)
+                y_concat2 = torch.stack([y_convPreProc0, y_convPreProc1, y_convPreProc2], 1)
 
-            y_attention = self.LAM(y_concat2)
+                y_attention = self.LAM(y_concat2)
 
-            # y_summ3 = y_block2 + y_attention
-            # y_summ3 = y_block2
-            y_summ3 = y_attention
+                # y_summ3 = y_block2 + y_attention
+                # y_summ3 = y_block2
+                y_summ3 = y_attention
 
-            y_flat = rearrange(y_summ3, 'b c h w -> b w (h c)')
+                y_flat = rearrange(y_summ3, 'b c h w -> b w (h c)')
+
+                # y_linear = self.linear(lstm_out)
 
             tag_scores = self.LSTM(y_flat)
-
-            # y_linear = self.linear(lstm_out)
 
             # tag_scores = F.log_softmax(y_linear, dim=2)
 
