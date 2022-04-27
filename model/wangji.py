@@ -143,12 +143,12 @@ class Wangji(nn.Module):
                 input_size = 16*dims[2]
             elif self.cfg.recognizer_input == 'convnext':
                 # input_size = dims[self.cfg.recognizer_input_convnext]
-                input_size = dims[2] if self.cfg.recognizer_input_convnext == 1 else dims[1]
+                input_size = (768 if self.cfg.convNext_type == 'T' or self.cfg.convNext_type == 'S' else 1536) if self.cfg.recognizer_input_convnext == 1 else dims[2]
                 # self.last_convNext_block = eval("y_block"+str(self.cfg.recognizer_input_convnext))
             hidden_size = input_size
             num_layers = 2
             batch_first = True
-            bidirectional = False
+            bidirectional = True
             tagset_size  = self.cfg.FULL_VOCAB_SIZE
 
             if cfg.recognizer == 'lstm':
@@ -459,6 +459,7 @@ class LSTMTagger(nn.Module):
 
         # The linear layer that maps from hidden state space to tag space
         # self.hidden2tag = nn.Linear(hidden_size*2, tagset_size) #!!! hidden_size*2 из-за bidirectional=True. Уточни у Саши МОЖЕТ ВЕРНУТЬ
+        hidden_size = hidden_size*2 if bidirectional else hidden_size
         self.hidden2tag = nn.Linear(hidden_size, tagset_size) #!!! hidden_size*2 из-за bidirectional=True. Уточни у Саши МОЖЕТ ВЕРНУТЬ
 
     def forward(self, input):

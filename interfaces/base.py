@@ -33,6 +33,7 @@ class TextBase(object):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.log_dir_name = 'log_' + str(datetime.now()).replace(':', '_').replace(' ', '_')
         self.make_writer()
+        self.make_multi_writer()
         self.cal_psnr = ssim_psnr.calculate_psnr
         self.cal_ssim = ssim_psnr.SSIM()
         self.resume = args.resume if args.resume is not None else config.resume
@@ -250,8 +251,8 @@ class TextBase(object):
         self.multi_writer = SummaryWriter('checkpoint/{}'.format(self.log_dir_name))
         layout = {
             "MultiGraphs": {
-                "MultiLoss": ["Multiline", ["MultiLoss/train", "MultiLoss/validation"]]
-            }
+                "MultiLoss": ["Multiline", ["MultiLoss/train", "MultiLoss/validation"]],
+            },
         }
         self.multi_writer.add_custom_scalars(layout)
 

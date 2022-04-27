@@ -63,7 +63,7 @@ freeze_convnext: False
 
 train_after_sr: False
 
-batch_size: 256
+batch_size: 100
 epochs: 1000
 cuda: True
 ngpu: 1
@@ -76,7 +76,7 @@ scheduler_plateau_cooldown: 6
 scheduler_plateau_factor: 0.8
 min_lr: 1e-20
 
-# resume: '/home/helen/code/TextSR/checkpoint/log_2022-04-25_02_21_43.606800 - 39/model_best.pth'
+# resume: '/home/helen/code/TextSR/checkpoint/log_2022-04-27_02_52_35.478693/model_best.pth'
 # resume: '/home/helen/ssd/checkpoint/log_2022-04-25_21_53_18.130641/checkpoint.pth'
 resume: ''
 

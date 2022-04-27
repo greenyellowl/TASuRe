@@ -316,6 +316,15 @@ class TextSR(base.TextBase):
                     current_follow_metric_dict = {}
 
                     metrics_dict_datasets = {}
+                    crnn_sr_accuracy_sum = 0
+                    crnn_sr_lev_dis_relation_avg_sum = 0
+                    crnn_lr_accuracy_sum = 0
+                    crnn_lr_lev_dis_relation_avg_sum = 0
+                    ctc_sr_accuracy_sum = 0
+                    ctc_sr_lev_dis_relation_avg_sum = 0
+                    psnr_avg_sum = 0
+                    ssim_avg_sum = 0
+                    cnt = 0
                     
                     for k, val_loader in enumerate(test_val_loader_list):
                         dataset_name = val_loader.dataset.dataset_name
@@ -331,12 +340,24 @@ class TextSR(base.TextBase):
                         
                         # Обновляем словарь с лучими значениями отслеживаемой метрики в каждом датасете
                         best_history_follow_metric_values = self.update_best_metric(metrics_dict, best_history_follow_metric_values, dataset_name, epoch)
+
+                        # Рассчёт средних метрик за эпоху
+                        crnn_sr_accuracy_sum += metrics_dict['crnn_sr_accuracy']
+                        crnn_sr_lev_dis_relation_avg_sum += metrics_dict['crnn_sr_lev_dis_relation_avg']
+                        crnn_lr_accuracy_sum += metrics_dict['crnn_lr_accuracy']
+                        crnn_lr_lev_dis_relation_avg_sum += metrics_dict['crnn_lr_lev_dis_relation_avg']
+                        ctc_sr_accuracy_sum += metrics_dict['ctc_sr_accuracy']
+                        ctc_sr_lev_dis_relation_avg_sum += metrics_dict['ctc_sr_lev_dis_relation_avg']
+                        psnr_avg_sum += metrics_dict['psnr_avg']
+                        ssim_avg_sum += metrics_dict['ssim_avg']
+                        cnt +=1
                     
                     # Сохранение модели
                     if self.cfg.saveBestModel:
                         best_sum_follow_metric_value = self.save_best_model(follow_metric_name, current_follow_metric_dict, best_history_follow_metric_values, 
                                                                             best_sum_follow_metric_value, metrics_dict_datasets, model, optimizer, scheduler_plateau, scheduler_warmup, iters, epoch)
                   
+                # Закончилась эпоха
                 end_time = time.time() * 1000
                 duration = end_time - start_time
                 spend_time += 'ВАЛИДАЦИЯ '+str(duration)+'  \n'
@@ -387,6 +408,24 @@ class TextSR(base.TextBase):
             end_time = time.time() * 1000
             duration = end_time - start_time
             spend_time += 'Лоссы '+str(duration)+'  \n'
+
+            # Метрики по эпохам
+            if self.cfg.enable_sr or self.cfg.train_after_sr: 
+                self.writer.add_scalar(f'other_avg/psnr_avg', psnr_avg_sum / cnt, epoch)
+                self.writer.add_scalar(f'other_avg/ssim_avg', ssim_avg_sum / cnt, epoch)
+                self.writer.add_scalar(f'accuracy_avg/crnn_sr_accuracy', crnn_sr_accuracy_sum / cnt * 100, epoch)
+                self.writer.add_scalar(f'other_avg/crnn_sr_lev_dis_relation_avg', crnn_sr_lev_dis_relation_avg_sum / cnt, epoch)
+                self.writer.add_scalar(f'accuracy_avg/crnn_lr_accuracy', crnn_lr_accuracy_sum / cnt * 100, epoch)
+                self.writer.add_scalar(f'other_avg/crnn_lr_lev_dis_relation_avg', crnn_lr_lev_dis_relation_avg_sum / cnt, epoch)
+ 
+            if self.cfg.enable_rec:
+                self.writer.add_scalar(f'accuracy_avg/ctc_sr_accuracy', ctc_sr_accuracy_sum / cnt * 100, epoch)
+                self.writer.add_scalar(f'other_avg/ctc_sr_lev_dis_relation_avg', ctc_sr_lev_dis_relation_avg_sum / cnt, epoch)
+            elif self.cfg.recognizer == 'transformer':
+                self.writer.add_scalar(f'accuracy_avg/crnn_sr_accuracy', crnn_sr_accuracy_sum / cnt * 100, epoch)
+                self.writer.add_scalar(f'other_avg/crnn_sr_lev_dis_relation_avg', crnn_sr_lev_dis_relation_avg_sum / cnt, epoch)
+                self.writer.add_scalar(f'accuracy_avg/crnn_lr_accuracy', crnn_lr_accuracy_sum / cnt * 100, epoch)
+                self.writer.add_scalar(f'other_avg/crnn_lr_lev_dis_relation_avg', crnn_lr_lev_dis_relation_avg_sum / cnt, epoch)
             
 
     def get_crnn_pred(self, outputs):
@@ -641,7 +680,7 @@ class TextSR(base.TextBase):
                 elif self.cfg.recognizer == 'lstm':
                     loss, mse_loss, ctc_loss = image_crit(images_sr, tag_scores, images_hr, label_strs)
                 
-                    self.multi_writer.add_scalar('Multiloss/validation', loss, iters)
+                    self.multi_writer.add_scalar(f'loss/validation/{dataset_name}', loss, iters)
                 else:
                     raise exceptions.WrongRecognizer
 
