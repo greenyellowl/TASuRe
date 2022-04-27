@@ -316,14 +316,34 @@ class TextSR(base.TextBase):
                     current_follow_metric_dict = {}
 
                     metrics_dict_datasets = {}
+
+                    aster_sr_accuracy_sum = 0
+                    aster_sr_lev_dis_relation_avg_sum = 0
+                    aster_lr_accuracy_sum = 0
+                    aster_lr_lev_dis_relation_avg_sum = 0
+                    aster_hr_accuracy_sum = 0
+                    aster_hr_lev_dis_relation_avg_sum = 0
+
                     crnn_sr_accuracy_sum = 0
                     crnn_sr_lev_dis_relation_avg_sum = 0
                     crnn_lr_accuracy_sum = 0
                     crnn_lr_lev_dis_relation_avg_sum = 0
+                    crnn_hr_accuracy_sum = 0
+                    crnn_hr_lev_dis_relation_avg_sum = 0
+
+                    moran_sr_accuracy_sum = 0
+                    moran_sr_lev_dis_relation_avg_sum = 0
+                    moran_lr_accuracy_sum = 0
+                    moran_lr_lev_dis_relation_avg_sum = 0
+                    moran_hr_accuracy_sum = 0
+                    moran_hr_lev_dis_relation_avg_sum = 0
+
                     ctc_sr_accuracy_sum = 0
                     ctc_sr_lev_dis_relation_avg_sum = 0
+
                     psnr_avg_sum = 0
                     ssim_avg_sum = 0
+
                     cnt = 0
                     
                     for k, val_loader in enumerate(test_val_loader_list):
@@ -342,14 +362,33 @@ class TextSR(base.TextBase):
                         best_history_follow_metric_values = self.update_best_metric(metrics_dict, best_history_follow_metric_values, dataset_name, epoch)
 
                         # Рассчёт средних метрик за эпоху
+                        aster_sr_accuracy_sum += metrics_dict['aster_sr_accuracy']
+                        aster_sr_lev_dis_relation_avg_sum += metrics_dict['aster_sr_lev_dis_relation_avg']
+                        aster_lr_accuracy_sum += metrics_dict['aster_lr_accuracy']
+                        aster_lr_lev_dis_relation_avg_sum += metrics_dict['aster_lr_lev_dis_relation_avg']
+                        aster_hr_accuracy_sum += metrics_dict['aster_hr_accuracy']
+                        aster_hr_lev_dis_relation_avg_sum += metrics_dict['aster_hr_lev_dis_relation_avg']
+
                         crnn_sr_accuracy_sum += metrics_dict['crnn_sr_accuracy']
                         crnn_sr_lev_dis_relation_avg_sum += metrics_dict['crnn_sr_lev_dis_relation_avg']
                         crnn_lr_accuracy_sum += metrics_dict['crnn_lr_accuracy']
                         crnn_lr_lev_dis_relation_avg_sum += metrics_dict['crnn_lr_lev_dis_relation_avg']
+                        crnn_hr_accuracy_sum += metrics_dict['crnn_hr_accuracy']
+                        crnn_hr_lev_dis_relation_avg_sum += metrics_dict['crnn_hr_lev_dis_relation_avg']
+
+                        moran_sr_accuracy_sum += metrics_dict['moran_sr_accuracy']
+                        moran_sr_lev_dis_relation_avg_sum += metrics_dict['moran_sr_lev_dis_relation_avg']
+                        moran_lr_accuracy_sum += metrics_dict['moran_lr_accuracy']
+                        moran_lr_lev_dis_relation_avg_sum += metrics_dict['moran_lr_lev_dis_relation_avg']
+                        moran_hr_accuracy_sum += metrics_dict['moran_hr_accuracy']
+                        moran_hr_lev_dis_relation_avg_sum += metrics_dict['moran_hr_lev_dis_relation_avg']
+
                         ctc_sr_accuracy_sum += metrics_dict['ctc_sr_accuracy']
                         ctc_sr_lev_dis_relation_avg_sum += metrics_dict['ctc_sr_lev_dis_relation_avg']
+
                         psnr_avg_sum += metrics_dict['psnr_avg']
                         ssim_avg_sum += metrics_dict['ssim_avg']
+
                         cnt +=1
                     
                     # Сохранение модели
@@ -410,22 +449,34 @@ class TextSR(base.TextBase):
             spend_time += 'Лоссы '+str(duration)+'  \n'
 
             # Метрики по эпохам
-            if self.cfg.enable_sr or self.cfg.train_after_sr: 
+            if self.cfg.enable_sr or self.cfg.train_after_sr or (not self.cfg.enable_rec and self.cfg.recognizer == 'transformer'): 
                 self.writer.add_scalar(f'other_avg/psnr_avg', psnr_avg_sum / cnt, epoch)
                 self.writer.add_scalar(f'other_avg/ssim_avg', ssim_avg_sum / cnt, epoch)
+                
+                self.writer.add_scalar(f'accuracy_avg/aster_sr_accuracy', aster_sr_accuracy_sum / cnt * 100, epoch)
+                self.writer.add_scalar(f'other_avg/aster_sr_lev_dis_relation_avg', aster_sr_lev_dis_relation_avg_sum / cnt, epoch)
+                self.writer.add_scalar(f'accuracy_avg/aster_lr_accuracy', aster_lr_accuracy_sum / cnt * 100, epoch)
+                self.writer.add_scalar(f'other_avg/aster_lr_lev_dis_relation_avg', aster_lr_lev_dis_relation_avg_sum / cnt, epoch)
+                self.writer.add_scalar(f'accuracy_avg/aster_hr_accuracy', aster_hr_accuracy_sum / cnt * 100, epoch)
+                self.writer.add_scalar(f'other_avg/aster_hr_lev_dis_relation_avg', aster_hr_lev_dis_relation_avg_sum / cnt, epoch)
+
                 self.writer.add_scalar(f'accuracy_avg/crnn_sr_accuracy', crnn_sr_accuracy_sum / cnt * 100, epoch)
                 self.writer.add_scalar(f'other_avg/crnn_sr_lev_dis_relation_avg', crnn_sr_lev_dis_relation_avg_sum / cnt, epoch)
                 self.writer.add_scalar(f'accuracy_avg/crnn_lr_accuracy', crnn_lr_accuracy_sum / cnt * 100, epoch)
                 self.writer.add_scalar(f'other_avg/crnn_lr_lev_dis_relation_avg', crnn_lr_lev_dis_relation_avg_sum / cnt, epoch)
+                self.writer.add_scalar(f'accuracy_avg/crnn_hr_accuracy', crnn_hr_accuracy_sum / cnt * 100, epoch)
+                self.writer.add_scalar(f'other_avg/crnn_hr_lev_dis_relation_avg', crnn_hr_lev_dis_relation_avg_sum / cnt, epoch)
+                
+                self.writer.add_scalar(f'accuracy_avg/moran_sr_accuracy', moran_sr_accuracy_sum / cnt * 100, epoch)
+                self.writer.add_scalar(f'other_avg/moran_sr_lev_dis_relation_avg', moran_sr_lev_dis_relation_avg_sum / cnt, epoch)
+                self.writer.add_scalar(f'accuracy_avg/moran_lr_accuracy', moran_lr_accuracy_sum / cnt * 100, epoch)
+                self.writer.add_scalar(f'other_avg/moran_lr_lev_dis_relation_avg', moran_lr_lev_dis_relation_avg_sum / cnt, epoch)
+                self.writer.add_scalar(f'accuracy_avg/moran_hr_accuracy', moran_hr_accuracy_sum / cnt * 100, epoch)
+                self.writer.add_scalar(f'other_avg/moran_hr_lev_dis_relation_avg', moran_hr_lev_dis_relation_avg_sum / cnt, epoch)
  
             if self.cfg.enable_rec:
                 self.writer.add_scalar(f'accuracy_avg/ctc_sr_accuracy', ctc_sr_accuracy_sum / cnt * 100, epoch)
                 self.writer.add_scalar(f'other_avg/ctc_sr_lev_dis_relation_avg', ctc_sr_lev_dis_relation_avg_sum / cnt, epoch)
-            elif self.cfg.recognizer == 'transformer':
-                self.writer.add_scalar(f'accuracy_avg/crnn_sr_accuracy', crnn_sr_accuracy_sum / cnt * 100, epoch)
-                self.writer.add_scalar(f'other_avg/crnn_sr_lev_dis_relation_avg', crnn_sr_lev_dis_relation_avg_sum / cnt, epoch)
-                self.writer.add_scalar(f'accuracy_avg/crnn_lr_accuracy', crnn_lr_accuracy_sum / cnt * 100, epoch)
-                self.writer.add_scalar(f'other_avg/crnn_lr_lev_dis_relation_avg', crnn_lr_lev_dis_relation_avg_sum / cnt, epoch)
             
 
     def get_crnn_pred(self, outputs):
@@ -699,9 +750,12 @@ class TextSR(base.TextBase):
                                         metric_dict,
                                         dataset_name,
                                         epoch,
-                                        calc_lr,
+                                        calc_lr=False,
                                         n_correct_lr_sum=None,
-                                        lr_lev_dis_relation_list=None):
+                                        lr_lev_dis_relation_list=None,
+                                        calc_hr=False,
+                                        n_correct_hr_sum=None,
+                                        hr_lev_dis_relation_list=None):
         # ACC SR
 
         sr_accuracy = round(n_correct_sr_sum / cnt_images, 4)
@@ -732,6 +786,22 @@ class TextSR(base.TextBase):
             self.writer.add_scalar(f'{name.upper()}/{dataset_name}/lr_lev_dis_relation_avg', lr_lev_dis_relation_avg, epoch)
             
             print(f'{name}_lr_accuracy {float(lr_accuracy):.2f} | {name}_lr_lev_dis_relation_avg {float(lr_lev_dis_relation_avg):.4f}\t')
+        
+        if calc_hr:
+            # ACC HR
+
+            hr_accuracy = round(n_correct_hr_sum / cnt_images, 4)
+            metric_dict[name+'_hr_accuracy'] = hr_accuracy
+            self.writer.add_scalar(f'{name.upper()}/{dataset_name}/hr_accuracy', hr_accuracy * 100, epoch)
+            # print(name+'_hr_accuracy: %.2f%%' % (hr_accuracy * 100))
+
+            # LEV DIS HR
+            
+            hr_lev_dis_relation_avg = round(sum(hr_lev_dis_relation_list) / cnt_images, 4)
+            metric_dict[name+'_hr_lev_dis_relation_avg'] = hr_lev_dis_relation_avg
+            self.writer.add_scalar(f'{name.upper()}/{dataset_name}/hr_lev_dis_relation_avg', hr_lev_dis_relation_avg, epoch)
+            
+            print(f'{name}_hr_accuracy {float(hr_accuracy):.2f} | {name}_hr_lev_dis_relation_avg {float(hr_lev_dis_relation_avg):.4f}\t')
 
         return metric_dict
     
@@ -761,6 +831,9 @@ class TextSR(base.TextBase):
             aster_n_correct_lr_sum = 0
             aster_lr_lev_dis_list = []
             aster_lr_lev_dis_relation_list = []
+            aster_n_correct_hr_sum = 0
+            aster_hr_lev_dis_list = []
+            aster_hr_lev_dis_relation_list = []
             
             # CRNN
 
@@ -770,6 +843,9 @@ class TextSR(base.TextBase):
             crnn_n_correct_lr_sum = 0
             crnn_lr_lev_dis_list = []
             crnn_lr_lev_dis_relation_list = []
+            crnn_n_correct_hr_sum = 0
+            crnn_hr_lev_dis_list = []
+            crnn_hr_lev_dis_relation_list = []
 
             # MORAN
 
@@ -779,6 +855,9 @@ class TextSR(base.TextBase):
             moran_n_correct_lr_sum = 0
             moran_lr_lev_dis_list = []
             moran_lr_lev_dis_relation_list = []
+            moran_n_correct_hr_sum = 0
+            moran_hr_lev_dis_list = []
+            moran_hr_lev_dis_relation_list = []
 
             # CTC
             
@@ -797,14 +876,20 @@ class TextSR(base.TextBase):
                 'aster_sr_lev_dis_relation_avg': 0.0, 
                 'aster_lr_accuracy': 0.0, 
                 'aster_lr_lev_dis_relation_avg': 0.0, 
+                'aster_hr_accuracy': 0.0, 
+                'aster_hr_lev_dis_relation_avg': 0.0, 
                 'crnn_sr_accuracy': 0.0, 
                 'crnn_sr_lev_dis_relation_avg': 0.0, 
                 'crnn_lr_accuracy': 0.0, 
                 'crnn_lr_lev_dis_relation_avg': 0.0, 
+                'crnn_hr_accuracy': 0.0, 
+                'crnn_hr_lev_dis_relation_avg': 0.0, 
                 'moran_sr_accuracy': 0.0, 
                 'moran_sr_lev_dis_relation_avg': 0.0, 
                 'moran_lr_accuracy': 0.0, 
-                'moran_lr_lev_dis_relation_avg': 0.0, 
+                'moran_lr_lev_dis_relation_avg': 0.0,
+                'moran_hr_accuracy': 0.0, 
+                'moran_hr_lev_dis_relation_avg': 0.0, 
                 'ctc_sr_accuracy': 0.0, 
                 'ctc_sr_lev_dis_relation_avg': 0.0, 
                 'psnr_avg': 0.0, 
@@ -857,6 +942,10 @@ class TextSR(base.TextBase):
                     # LR
                     aster_n_correct_lr, aster_cnt_lr, aster_lr_lev_dis_list, aster_lr_lev_dis_relation_list, aster_lr_pred_text, aster_predict_result_lr = self.calculate_aster_pred(images_lr, label_strs, aster, aster_info, aster_lr_lev_dis_list, aster_lr_lev_dis_relation_list)
                     aster_n_correct_lr_sum += aster_n_correct_lr
+                    
+                    # HR
+                    aster_n_correct_hr, aster_cnt_hr, aster_hr_lev_dis_list, aster_hr_lev_dis_relation_list, aster_hr_pred_text, aster_predict_result_hr = self.calculate_aster_pred(images_hr, label_strs, aster, aster_info, aster_hr_lev_dis_list, aster_hr_lev_dis_relation_list)
+                    aster_n_correct_hr_sum += aster_n_correct_hr
 
                     # CRNN
                     
@@ -867,6 +956,10 @@ class TextSR(base.TextBase):
                     # LR
                     crnn_n_correct_lr, crnn_cnt_lr, crnn_lr_lev_dis_list, crnn_lr_lev_dis_relation_list, crnn_lr_pred_text, crnn_predict_result_lr = self.calculate_crnn_pred(images_lr, label_strs, crnn, crnn_lr_lev_dis_list, crnn_lr_lev_dis_relation_list)
                     crnn_n_correct_lr_sum += crnn_n_correct_lr
+                    
+                    # HR
+                    crnn_n_correct_hr, crnn_cnt_hr, crnn_hr_lev_dis_list, crnn_hr_lev_dis_relation_list, crnn_hr_pred_text, crnn_predict_result_hr = self.calculate_crnn_pred(images_hr, label_strs, crnn, crnn_hr_lev_dis_list, crnn_hr_lev_dis_relation_list)
+                    crnn_n_correct_hr_sum += crnn_n_correct_hr
 
                     # MORAN
                     
@@ -877,20 +970,30 @@ class TextSR(base.TextBase):
                     # LR
                     moran_n_correct_lr, moran_cnt_lr, moran_lr_lev_dis_list, moran_lr_lev_dis_relation_list, moran_lr_pred_text, moran_predict_result_lr = self.calculate_moran_pred(images_lr, label_strs, moran, moran_lr_lev_dis_list, moran_lr_lev_dis_relation_list)
                     moran_n_correct_lr_sum += moran_n_correct_lr
+                    
+                    # HR
+                    moran_n_correct_hr, moran_cnt_hr, moran_hr_lev_dis_list, moran_hr_lev_dis_relation_list, moran_hr_pred_text, moran_predict_result_hr = self.calculate_moran_pred(images_hr, label_strs, moran, moran_hr_lev_dis_list, moran_hr_lev_dis_relation_list)
+                    moran_n_correct_hr_sum += moran_n_correct_hr
 
                 else:
                     aster_predict_result_lr = None
                     aster_pred_lr = 'NONE'
                     aster_predict_result_sr = None
                     aster_pred_sr = 'NONE'
+                    aster_predict_result_hr = None
+                    aster_pred_hr = 'NONE'
                     crnn_predict_result_lr = None
                     crnn_pred_lr = 'NONE'
                     crnn_predict_result_sr = None
                     crnn_pred_sr = 'NONE'
+                    crnn_predict_result_hr = None
+                    crnn_pred_hr = 'NONE'
                     moran_predict_result_lr = None
                     moran_pred_lr = 'NONE'
                     moran_predict_result_sr = None
                     moran_pred_sr = 'NONE'
+                    moran_predict_result_hr = None
+                    moran_pred_hr = 'NONE'
 
                 # Если включена ветка распознавания, считаем точность распознавания СТС
                 if self.cfg.enable_rec:
@@ -927,25 +1030,31 @@ class TextSR(base.TextBase):
 
                         aster_pred_sr = aster_predict_result_sr[index].replace('"', '<quot>')
                         aster_pred_lr = aster_predict_result_lr[index].replace('"', '<quot>')
+                        aster_pred_hr = aster_predict_result_hr[index].replace('"', '<quot>')
 
                         self.writer.add_text(f'ASTER_SR_pred/{epoch}_epoch/{dataset_name}', aster_sr_pred_text)
                         self.writer.add_text(f'ASTER_LR_pred/{epoch}_epoch/{dataset_name}', aster_lr_pred_text)
+                        self.writer.add_text(f'ASTER_HR_pred/{epoch}_epoch/{dataset_name}', aster_hr_pred_text)
 
                         # CRNN
 
                         crnn_pred_sr = crnn_predict_result_sr[index].replace('"', '<quot>')
                         crnn_pred_lr = crnn_predict_result_lr[index].replace('"', '<quot>')
+                        crnn_pred_hr = crnn_predict_result_hr[index].replace('"', '<quot>')
 
                         self.writer.add_text(f'CRNN_SR_pred/{epoch}_epoch/{dataset_name}', crnn_sr_pred_text)
                         self.writer.add_text(f'CRNN_LR_pred/{epoch}_epoch/{dataset_name}', crnn_lr_pred_text)
+                        self.writer.add_text(f'CRNN_HR_pred/{epoch}_epoch/{dataset_name}', crnn_hr_pred_text)
 
                         # MORAN
 
                         moran_pred_sr = moran_predict_result_sr[index].replace('"', '<quot>')
                         moran_pred_lr = moran_predict_result_lr[index].replace('"', '<quot>')
+                        moran_pred_hr = moran_predict_result_hr[index].replace('"', '<quot>')
 
                         self.writer.add_text(f'MORAN_SR_pred/{epoch}_epoch/{dataset_name}', moran_sr_pred_text)
                         self.writer.add_text(f'MORAN_LR_pred/{epoch}_epoch/{dataset_name}', moran_lr_pred_text)
+                        self.writer.add_text(f'MORAN_HR_pred/{epoch}_epoch/{dataset_name}', moran_hr_pred_text)
                         
                         metric_dict['images_and_labels'].append((images_hr.detach().cpu(), images_sr.detach().cpu(), label_strs, crnn_predict_result_sr, crnn_predict_result_lr, ctc_decode_strings))
 
@@ -1007,7 +1116,9 @@ class TextSR(base.TextBase):
                     epoch,
                     True,
                     aster_n_correct_lr_sum,
-                    aster_lr_lev_dis_relation_list)
+                    aster_lr_lev_dis_relation_list,
+                    aster_n_correct_hr_sum,
+                    aster_hr_lev_dis_relation_list)
 
                 # CRNN
             
@@ -1020,7 +1131,9 @@ class TextSR(base.TextBase):
                     epoch,
                     True,
                     crnn_n_correct_lr_sum,
-                    crnn_lr_lev_dis_relation_list)
+                    crnn_lr_lev_dis_relation_list,
+                    crnn_n_correct_hr_sum,
+                    crnn_hr_lev_dis_relation_list)
 
                 # MORAN
             
@@ -1033,7 +1146,9 @@ class TextSR(base.TextBase):
                     epoch,
                     True,
                     moran_n_correct_lr_sum,
-                    moran_lr_lev_dis_relation_list)
+                    moran_lr_lev_dis_relation_list,
+                    moran_n_correct_hr_sum,
+                    moran_hr_lev_dis_relation_list)
  
             # Если включена ветка распознавания
             if self.cfg.enable_rec:
