@@ -63,7 +63,7 @@ freeze_convnext: False
 
 train_after_sr: False
 
-batch_size: 100
+batch_size: 93
 epochs: 1000
 cuda: True
 ngpu: 1

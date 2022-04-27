@@ -101,7 +101,7 @@ class MORN(nn.Module):
 
             for i in range(x.size(0)):
 
-                img_small = x_small[i].data.cpu().mul_(0.5).add_(0.5)
+                img_small = x_small[i].data.mul_(0.5).add_(0.5)
                 img = to_pil_image(img_small)
                 img = np.array(img)
                 if len(img.shape) == 2:
@@ -110,7 +110,7 @@ class MORN(nn.Module):
 
                 v_max = offsets_max.data[i]
                 v_min = offsets_min.data[i]
-                img_offsets = (offsets_grid[i]).view(1, self.targetH, self.targetW).data.cpu().add_(-v_min).mul_(1./(v_max-v_min))
+                img_offsets = (offsets_grid[i]).view(1, self.targetH, self.targetW).data.add_(-v_min).mul_(1./(v_max-v_min))
                 img_offsets = to_pil_image(img_offsets)
                 img_offsets = np.array(img_offsets)
                 color_map = np.empty([self.targetH, self.targetW, 3], dtype=int)
@@ -120,7 +120,7 @@ class MORN(nn.Module):
                 color_map = color_map.astype(np.uint8)
                 cv2.addWeighted(color_map, alpha, img_copy, 1-alpha, 0, img_copy)
 
-                img_processed = x_rectified[i].data.cpu().mul_(0.5).add_(0.5)
+                img_processed = x_rectified[i].data.mul_(0.5).add_(0.5)
                 img_processed = to_pil_image(img_processed)
                 img_processed = np.array(img_processed)
                 if len(img_processed.shape) == 2:

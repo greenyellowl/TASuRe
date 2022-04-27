@@ -1,3 +1,5 @@
+from collections import OrderedDict
+import string
 import dataset.dataset as dataset
 from dataset.dataset import MyDataset
 import torch
@@ -41,6 +43,10 @@ class TextBase(object):
         self.scale_factor = self.cfg.scale_factor
 
         self.Letters, self.Symbols, self.FullVocab, self.FullVocabList = util.get_vocab(self.cfg)
+
+        alphabet_moran = ':'.join(string.digits+string.ascii_lowercase+'$')
+        self.converter_moran = utils_moran.strLabelConverterForAttention(alphabet_moran, ':')
+        self.converter_crnn = utils_crnn.strLabelConverter(string.digits + string.ascii_lowercase)
 
 
     def get_train_data(self):
@@ -241,6 +247,74 @@ class TextBase(object):
         print('loading pretrained crnn model from %s' % model_path)
         model.load_state_dict(torch.load(model_path))
         return model, aster_info
+        
+
+    def parse_crnn_data(self, imgs_input):
+        imgs_input = torch.nn.functional.interpolate(imgs_input, (32, 100), mode='bicubic')
+        R = imgs_input[:, 0:1, :, :]
+        G = imgs_input[:, 1:2, :, :]
+        B = imgs_input[:, 2:3, :, :]
+        tensor = 0.299 * R + 0.587 * G + 0.114 * B
+        return tensor
+
+
+    def MORAN_init(self):
+        cfg = self.cfg
+        alphabet = ':'.join(string.digits+string.ascii_lowercase+'$')
+        MORAN = moran.MORAN(1, len(alphabet.split(':')), 256, 32, 100, BidirDecoder=True,
+                            inputDataType='torch.cuda.FloatTensor', CUDA=True)
+        model_path = self.cfg.moran_pretrained
+        self.logging.info('loading pre-trained moran model from %s' % model_path)
+        state_dict = torch.load(model_path)
+        MORAN_state_dict_rename = OrderedDict()
+        for k, v in state_dict.items():
+            name = k.replace("module.", "")  # remove `module.`
+            MORAN_state_dict_rename[name] = v
+        MORAN.load_state_dict(MORAN_state_dict_rename)
+        MORAN = MORAN.to(self.device)
+        MORAN = torch.nn.DataParallel(MORAN, device_ids=range(cfg.ngpu))
+        for p in MORAN.parameters():
+            p.requires_grad = False
+        MORAN.eval()
+        return MORAN
+
+    def parse_moran_data(self, imgs_input):
+        batch_size = imgs_input.shape[0]
+        imgs_input = torch.nn.functional.interpolate(imgs_input, (32, 100), mode='bicubic')
+        R = imgs_input[:, 0:1, :, :]
+        G = imgs_input[:, 1:2, :, :]
+        B = imgs_input[:, 2:3, :, :]
+        tensor = 0.299 * R + 0.587 * G + 0.114 * B
+        text = torch.LongTensor(batch_size * 5)
+        length = torch.IntTensor(batch_size)
+        max_iter = 20
+        t, l = self.converter_moran.encode(['0' * max_iter] * batch_size)
+        utils_moran.loadData(text, t)
+        utils_moran.loadData(length, l)
+        return tensor, length, text, text
+
+    def Aster_init(self):
+        cfg = self.cfg
+        aster_info = AsterInfo(cfg.voc_type)
+        aster = recognizer.RecognizerBuilder(arch='ResNet_ASTER', rec_num_classes=aster_info.rec_num_classes,
+                                             sDim=512, attDim=512, max_len_labels=aster_info.max_len,
+                                             eos=aster_info.char2id[aster_info.EOS], STN_ON=True)
+        aster.load_state_dict(torch.load(self.cfg.rec_pretrained)['state_dict'])
+        self.logging.info('load pred_trained aster model from %s' % self.cfg.rec_pretrained)
+        aster = aster.to(self.device)
+        aster = torch.nn.DataParallel(aster, device_ids=range(cfg.ngpu))
+        return aster, aster_info
+
+    def parse_aster_data(self, imgs_input):
+        cfg = self.cfg
+        aster_info = AsterInfo(cfg.voc_type)
+        input_dict = {}
+        images_input = imgs_input.to(self.device)
+        input_dict['images'] = images_input * 2 - 1
+        batch_size = images_input.shape[0]
+        input_dict['rec_targets'] = torch.IntTensor(batch_size, aster_info.max_len).fill_(1)
+        input_dict['rec_lengths'] = [aster_info.max_len] * batch_size
+        return input_dict
 
 
     def make_writer(self):
@@ -280,15 +354,6 @@ class TextBase(object):
             torch.save(save_dict, os.path.join(ckpt_path, 'model_best.pth'))
         else:
             torch.save(save_dict, os.path.join(ckpt_path, 'checkpoint.pth'))
-
-
-    def parse_crnn_data(self, imgs_input):
-        imgs_input = torch.nn.functional.interpolate(imgs_input, (32, 100), mode='bicubic')
-        R = imgs_input[:, 0:1, :, :]
-        G = imgs_input[:, 1:2, :, :]
-        B = imgs_input[:, 2:3, :, :]
-        tensor = 0.299 * R + 0.587 * G + 0.114 * B
-        return tensor
 
 
 

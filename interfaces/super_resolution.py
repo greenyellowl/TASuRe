@@ -113,7 +113,9 @@ class TextSR(base.TextBase):
         if optimizer is None:
             optimizer = self.optimizer_init(model)
 
-        aster, aster_info = self.CRNN_init()
+        aster, aster_info = self.Aster_init()
+        crnn, _ = self.CRNN_init()
+        moran = self.MORAN_init()
         scaler = GradScaler()
 
         # scheduler
@@ -181,7 +183,6 @@ class TextSR(base.TextBase):
                 duration = end_time - start_time
                 spend_time += 'Получение данных из датасетов '+str(duration)+'  \n'
 
-
                 # Прогон модели
                 
                 start_time = time.time() * 1000
@@ -193,7 +194,6 @@ class TextSR(base.TextBase):
                 end_time = time.time() * 1000
                 duration = end_time - start_time
                 spend_time += 'Прогон модели '+str(duration)+'  \n'
-
 
                 # Лоссы
                 
@@ -331,7 +331,7 @@ class TextSR(base.TextBase):
 
                         print('evaluation %s' % dataset_name)
 
-                        metrics_dict = self.eval(model, val_loader, image_crit, iters, aster, aster_info, dataset_name, iters, epoch)
+                        metrics_dict = self.eval(model, val_loader, image_crit, iters, aster, crnn, moran, aster_info, dataset_name, iters, epoch)
                         metrics_dict_datasets[dataset_name] = metrics_dict
 
                         # Сохраняем значения отслеживаемой метки из каждого датасета
@@ -496,10 +496,36 @@ class TextSR(base.TextBase):
         return current_row[n]
 
 
-    def calculate_crnn_pred(self, images, label_strs, recognizer, crnn_lev_dis_list, crnn_lev_dis_relation_list):
-        crnn_recognizer_dict = self.parse_crnn_data(images[:, :3, :, :])
-        crnn_recognizer_output = recognizer(crnn_recognizer_dict)
-        crnn_outputs = crnn_recognizer_output.permute(1, 0, 2).contiguous()
+    def calculate_aster_pred(self, images, label_strs, aster, aster_info, aster_lev_dis_list, aster_lev_dis_relation_list):
+        dict_sr = self.parse_aster_data(images[:, :3, :, :])
+        output_sr = aster(dict_sr)
+        pred_rec_sr = output_sr['output']['pred_rec']
+        pred_str_sr, _ = get_str_list(pred_rec_sr, dict_sr['rec_targets'], dataset=aster_info)
+
+        cnt = 0
+        n_correct = 0
+        pred_text = 'target -> aster_pred  \n'
+        for pred, target in zip(pred_str_sr, label_strs):
+            if self.cfg.letters == 'lower':
+                target = target.lower()
+            elif self.cfg.letters == 'upper':
+                target = target.upper()
+                
+            pred_text += target+' -> '+pred+"  \n"
+            lev_dis = self.levenshtein_distance(target, pred)
+            aster_lev_dis_list.append(lev_dis)
+            aster_lev_dis_relation_list.append(lev_dis / len(target) if len(target) > 0 else lev_dis)
+            if pred == target:
+                n_correct += 1
+            cnt += 1        
+        
+        return n_correct, cnt, aster_lev_dis_list, aster_lev_dis_relation_list, pred_text, pred_str_sr
+        
+
+    def calculate_crnn_pred(self, images, label_strs, crnn, crnn_lev_dis_list, crnn_lev_dis_relation_list):
+        crnn_dict = self.parse_crnn_data(images[:, :3, :, :])
+        crnn_output = crnn(crnn_dict)
+        crnn_outputs = crnn_output.permute(1, 0, 2).contiguous()
         crnn_predict_result = self.get_crnn_pred(crnn_outputs)
 
         crnn_cnt = 0
@@ -517,10 +543,39 @@ class TextSR(base.TextBase):
             crnn_lev_dis_relation_list.append(lev_dis / len(target) if len(target) > 0 else lev_dis)
             if pred == target:
                 crnn_n_correct += 1
-            crnn_cnt += 1
+            crnn_cnt += 1        
         
         return crnn_n_correct, crnn_cnt, crnn_lev_dis_list, crnn_lev_dis_relation_list, crnn_pred_text, crnn_predict_result
     
+
+    def calculate_moran_pred(self, images, label_strs, moran, moran_lev_dis_list, moran_lev_dis_relation_list):
+        moran_input = self.parse_moran_data(images[:, :3, :, :])
+        moran_output = moran(moran_input[0], moran_input[1], moran_input[2], moran_input[3], test=True,
+                                debug=True)
+        preds, preds_reverse = moran_output[0]
+        _, preds = preds.max(1)
+        sim_preds = self.converter_moran.decode(preds.data, moran_input[1].data)
+        pred_str_sr = [pred.split('$')[0] for pred in sim_preds]
+
+        cnt = 0
+        n_correct = 0
+        pred_text = 'target -> moran_pred  \n'
+        for pred, target in zip(pred_str_sr, label_strs):
+            if self.cfg.letters == 'lower':
+                target = target.lower()
+            elif self.cfg.letters == 'upper':
+                target = target.upper()
+                
+            pred_text += target+' -> '+pred+"  \n"
+            lev_dis = self.levenshtein_distance(target, pred)
+            moran_lev_dis_list.append(lev_dis)
+            moran_lev_dis_relation_list.append(lev_dis / len(target) if len(target) > 0 else lev_dis)
+            if pred == target:
+                n_correct += 1
+            cnt += 1        
+        
+        return n_correct, cnt, moran_lev_dis_list, moran_lev_dis_relation_list, pred_text, pred_str_sr
+
 
     def calculate_ctc_pred(self, tag_scores, label_strs, ctc_lev_dis_list, ctc_lev_dis_relation_list):
         ctc_cnt = 0
@@ -602,8 +657,18 @@ class TextSR(base.TextBase):
         return best_history_metric_values
 
     
-    def save_best_model(self, follow_metric_name, current_metric_dict, best_history_metric_values, best_sum_metric_value, metrics_dict_datasets, model, optimizer, scheduler, scheduler_warmup, iters, epoch):
-        
+    def save_best_model(self,
+                        follow_metric_name,
+                        current_metric_dict,
+                        best_history_metric_values, 
+                        best_sum_metric_value, 
+                        metrics_dict_datasets, 
+                        model, 
+                        optimizer, 
+                        scheduler, 
+                        scheduler_warmup, 
+                        iters, 
+                        epoch):
         follow_metric_name, metric_print, direction = self.get_follow_metric_name()
 
         current_metric_sum = sum(current_metric_dict.values())
@@ -626,15 +691,78 @@ class TextSR(base.TextBase):
         return best_sum_metric_value
     
     
+    def calc_print_external_recognizer(self,
+                                        name,
+                                        n_correct_sr_sum,
+                                        sr_lev_dis_relation_list,
+                                        cnt_images,
+                                        metric_dict,
+                                        dataset_name,
+                                        epoch,
+                                        calc_lr,
+                                        n_correct_lr_sum=None,
+                                        lr_lev_dis_relation_list=None):
+        # ACC SR
+
+        sr_accuracy = round(n_correct_sr_sum / cnt_images, 4)
+        metric_dict[name+'_sr_accuracy'] = sr_accuracy
+        self.writer.add_scalar(f'{name.upper()}/{dataset_name}/sr_accuracy', sr_accuracy * 100, epoch)
+        # print(name+'_sr_accuracy: %.2f%%' % (sr_accuracy * 100))
+
+        # LEV DIS SR
+        
+        sr_lev_dis_relation_avg = round(sum(sr_lev_dis_relation_list) / cnt_images, 4)
+        metric_dict[name+'_sr_lev_dis_relation_avg'] = sr_lev_dis_relation_avg
+        self.writer.add_scalar(f'{name.upper()}/{dataset_name}/sr_lev_dis_relation_avg', sr_lev_dis_relation_avg, epoch)
+        
+        print(f'{name}_sr_accuracy {float(sr_accuracy):.2f} | {name}_sr_lev_dis_relation_avg {float(sr_lev_dis_relation_avg):.4f}\t')
+
+        if calc_lr:
+            # ACC LR
+
+            lr_accuracy = round(n_correct_lr_sum / cnt_images, 4)
+            metric_dict[name+'_lr_accuracy'] = lr_accuracy
+            self.writer.add_scalar(f'{name.upper()}/{dataset_name}/lr_accuracy', lr_accuracy * 100, epoch)
+            # print(name+'_lr_accuracy: %.2f%%' % (lr_accuracy * 100))
+
+            # LEV DIS LR
+            
+            lr_lev_dis_relation_avg = round(sum(lr_lev_dis_relation_list) / cnt_images, 4)
+            metric_dict[name+'_lr_lev_dis_relation_avg'] = lr_lev_dis_relation_avg
+            self.writer.add_scalar(f'{name.upper()}/{dataset_name}/lr_lev_dis_relation_avg', lr_lev_dis_relation_avg, epoch)
+            
+            print(f'{name}_lr_accuracy {float(lr_accuracy):.2f} | {name}_lr_lev_dis_relation_avg {float(lr_lev_dis_relation_avg):.4f}\t')
+
+        return metric_dict
+    
+    
     # валидация одного датасета
-    def eval(self, model, val_loader, image_crit, index, recognizer, aster_info, dataset_name, iters, epoch):
+    def eval(self, model, val_loader, image_crit, index, aster, crnn, moran, aster_info, dataset_name, iters, epoch):
         with torch.no_grad():
             global easy_test_times
             global medium_test_times
             global hard_test_times
 
             model.eval()
-            recognizer.eval()
+            crnn.eval()
+            aster.eval()
+            moran.eval()
+
+            # LOSS
+            loss_sum = 0
+            mse_loss_sum = 0
+            ctc_loss_sum = 0
+
+            # ASTER
+            
+            aster_n_correct_sr_sum = 0
+            aster_sr_lev_dis_list = []
+            aster_sr_lev_dis_relation_list = []
+            aster_n_correct_lr_sum = 0
+            aster_lr_lev_dis_list = []
+            aster_lr_lev_dis_relation_list = []
+            
+            # CRNN
 
             crnn_n_correct_sr_sum = 0
             crnn_sr_lev_dis_list = []
@@ -642,30 +770,52 @@ class TextSR(base.TextBase):
             crnn_n_correct_lr_sum = 0
             crnn_lr_lev_dis_list = []
             crnn_lr_lev_dis_relation_list = []
+
+            # MORAN
+
+            moran_n_correct_sr_sum = 0
+            moran_sr_lev_dis_list = []
+            moran_sr_lev_dis_relation_list = []
+            moran_n_correct_lr_sum = 0
+            moran_lr_lev_dis_list = []
+            moran_lr_lev_dis_relation_list = []
+
+            # CTC
+            
             ctc_sr_n_correct_sum = 0
             ctc_sr_lev_dis_list = []
             ctc_sr_lev_dis_relation_list = []
             # ctc_lr_n_correct_sum = 0
             # ctc_lr_lev_dis_list = []
+
             psnr_batches = []
             ssim_batches = []
             cnt_images = 0
 
-            # metric_dict = {'ICDAR 2013': {'psnr': [], 'ssim': [], 'crnn_sr_accuracy': 0.0, 'ctc_sr_accuracy': 0.0, 'psnr_avg': 0.0, 'ssim_avg': 0.0, 'images_and_labels': []},
-            #                'ICDAR 2015': {'psnr': [], 'ssim': [], 'crnn_sr_accuracy': 0.0, 'ctc_sr_accuracy': 0.0, 'psnr_avg': 0.0, 'ssim_avg': 0.0, 'images_and_labels': []},
-            #                'The Street View Text': {'psnr': [], 'ssim': [], 'crnn_sr_accuracy': 0.0, 'ctc_sr_accuracy': 0.0, 'psnr_avg': 0.0, 'ssim_avg': 0.0, 'images_and_labels': []},
-            #                'The IIIT 5K-word': {'psnr': [], 'ssim': [], 'crnn_sr_accuracy': 0.0, 'ctc_sr_accuracy': 0.0, 'psnr_avg': 0.0, 'ssim_avg': 0.0, 'images_and_labels': []},
-            #                'TextZoom_easy': {'psnr': [], 'ssim': [], 'crnn_sr_accuracy': 0.0, 'ctc_sr_accuracy': 0.0, 'psnr_avg': 0.0, 'ssim_avg': 0.0, 'images_and_labels': []},
-            #                'TextZoom_medium': {'psnr': [], 'ssim': [], 'crnn_sr_accuracy': 0.0, 'ctc_sr_accuracy': 0.0, 'psnr_avg': 0.0, 'ssim_avg': 0.0, 'images_and_labels': []},
-            #                'TextZoom_hard': {'psnr': [], 'ssim': [], 'crnn_sr_accuracy': 0.0, 'ctc_sr_accuracy': 0.0, 'psnr_avg': 0.0, 'ssim_avg': 0.0, 'images_and_labels': []},
-            #                'Total': {'psnr': [], 'ssim': [], 'crnn_sr_accuracy': 0.0, 'ctc_sr_accuracy': 0.0, 'psnr_avg': 0.0, 'ssim_avg': 0.0, 'images_and_labels': []}}
-
-            metric_dict = {'crnn_sr_accuracy': 0.0, 'crnn_sr_lev_dis_relation_avg': 0.0, 'crnn_lr_accuracy': 0.0, 'crnn_lr_lev_dis_relation_avg': 0.0, 'ctc_sr_accuracy': 0.0, 'ctc_sr_lev_dis_relation_avg': 0.0, 'psnr_avg': 0.0, 'ssim_avg': 0.0, 'images_and_labels': []}
+            metric_dict = {
+                'aster_sr_accuracy': 0.0, 
+                'aster_sr_lev_dis_relation_avg': 0.0, 
+                'aster_lr_accuracy': 0.0, 
+                'aster_lr_lev_dis_relation_avg': 0.0, 
+                'crnn_sr_accuracy': 0.0, 
+                'crnn_sr_lev_dis_relation_avg': 0.0, 
+                'crnn_lr_accuracy': 0.0, 
+                'crnn_lr_lev_dis_relation_avg': 0.0, 
+                'moran_sr_accuracy': 0.0, 
+                'moran_sr_lev_dis_relation_avg': 0.0, 
+                'moran_lr_accuracy': 0.0, 
+                'moran_lr_lev_dis_relation_avg': 0.0, 
+                'ctc_sr_accuracy': 0.0, 
+                'ctc_sr_lev_dis_relation_avg': 0.0, 
+                'psnr_avg': 0.0, 
+                'ssim_avg': 0.0, 
+                'images_and_labels': []}
 
             image_start_index = 0
 
             for i, data in (enumerate(val_loader)):
-                # Сбор данных из датасетов и получение результатов работы модели
+                # Получение данных из датасетов
+
                 images_hr, images_lr, label_strs, _ = data
 
                 val_batch_size = images_lr.shape[0]
@@ -673,59 +823,80 @@ class TextSR(base.TextBase):
                 images_lr = images_lr.to(self.device)
                 images_hr = images_hr.to(self.device)
 
+                # Прогон модели
+
                 images_sr, tag_scores = model(images_lr)
+
+                # Лоссы
 
                 if self.cfg.recognizer == 'transformer':
                     loss, mse_loss, attention_loss, recognition_loss, word_decoder_result = image_crit(images_sr, images_hr, label_strs)
                 elif self.cfg.recognizer == 'lstm':
                     loss, mse_loss, ctc_loss = image_crit(images_sr, tag_scores, images_hr, label_strs)
-                
-                    self.multi_writer.add_scalar(f'loss/validation/{dataset_name}', loss, iters)
+                    loss_sum += loss
+                    mse_loss_sum += mse_loss
+                    ctc_loss_sum += ctc_loss
                 else:
                     raise exceptions.WrongRecognizer
 
                 # Если включена ветка СР или модель предобучена на СР, считаем степень зашумлённости и похожести изображений
                 if self.cfg.enable_sr or self.cfg.train_after_sr: 
-                    # Вычисление PSNR и SSIM (Средние по батчу)                    
+                    # Вычисление PSNR и SSIM (Средние по батчу)  
+                                      
                     psnr_batches.append(self.cal_psnr(images_sr, images_hr))
                     ssim_batches.append(self.cal_ssim(images_sr, images_hr))
 
-                    # CRNN Test
+                # Точность и дистанция Левинштейна
+                if self.cfg.enable_sr or self.cfg.train_after_sr or (not self.cfg.enable_rec and self.cfg.recognizer == 'transformer'):
+                    # ASTER
                     
                     # SR
-                    crnn_n_correct_sr, crnn_cnt_sr, crnn_sr_lev_dis_list, crnn_sr_lev_dis_relation_list, crnn_sr_pred_text, crnn_predict_result_sr = self.calculate_crnn_pred(images_sr, label_strs, recognizer, crnn_sr_lev_dis_list, crnn_sr_lev_dis_relation_list)
+                    aster_n_correct_sr, aster_cnt_sr, aster_sr_lev_dis_list, aster_sr_lev_dis_relation_list, aster_sr_pred_text, aster_predict_result_sr = self.calculate_aster_pred(images_sr, label_strs, aster, aster_info, aster_sr_lev_dis_list, aster_sr_lev_dis_relation_list)
+                    aster_n_correct_sr_sum += aster_n_correct_sr
+                    
+                    # LR
+                    aster_n_correct_lr, aster_cnt_lr, aster_lr_lev_dis_list, aster_lr_lev_dis_relation_list, aster_lr_pred_text, aster_predict_result_lr = self.calculate_aster_pred(images_lr, label_strs, aster, aster_info, aster_lr_lev_dis_list, aster_lr_lev_dis_relation_list)
+                    aster_n_correct_lr_sum += aster_n_correct_lr
+
+                    # CRNN
+                    
+                    # SR
+                    crnn_n_correct_sr, crnn_cnt_sr, crnn_sr_lev_dis_list, crnn_sr_lev_dis_relation_list, crnn_sr_pred_text, crnn_predict_result_sr = self.calculate_crnn_pred(images_sr, label_strs, crnn, crnn_sr_lev_dis_list, crnn_sr_lev_dis_relation_list)
                     crnn_n_correct_sr_sum += crnn_n_correct_sr
                     
                     # LR
-                    crnn_n_correct_lr, crnn_cnt_lr, crnn_lr_lev_dis_list, crnn_lr_lev_dis_relation_list, crnn_lr_pred_text, crnn_predict_result_lr = self.calculate_crnn_pred(images_lr, label_strs, recognizer, crnn_lr_lev_dis_list, crnn_lr_lev_dis_relation_list)
+                    crnn_n_correct_lr, crnn_cnt_lr, crnn_lr_lev_dis_list, crnn_lr_lev_dis_relation_list, crnn_lr_pred_text, crnn_predict_result_lr = self.calculate_crnn_pred(images_lr, label_strs, crnn, crnn_lr_lev_dis_list, crnn_lr_lev_dis_relation_list)
                     crnn_n_correct_lr_sum += crnn_n_correct_lr
 
+                    # MORAN
+                    
+                    # SR
+                    moran_n_correct_sr, moran_cnt_sr, moran_sr_lev_dis_list, moran_sr_lev_dis_relation_list, moran_sr_pred_text, moran_predict_result_sr = self.calculate_moran_pred(images_sr, label_strs, moran, moran_sr_lev_dis_list, moran_sr_lev_dis_relation_list)
+                    moran_n_correct_sr_sum += moran_n_correct_sr
+                    
+                    # LR
+                    moran_n_correct_lr, moran_cnt_lr, moran_lr_lev_dis_list, moran_lr_lev_dis_relation_list, moran_lr_pred_text, moran_predict_result_lr = self.calculate_moran_pred(images_lr, label_strs, moran, moran_lr_lev_dis_list, moran_lr_lev_dis_relation_list)
+                    moran_n_correct_lr_sum += moran_n_correct_lr
+
                 else:
+                    aster_predict_result_lr = None
+                    aster_pred_lr = 'NONE'
+                    aster_predict_result_sr = None
+                    aster_pred_sr = 'NONE'
                     crnn_predict_result_lr = None
                     crnn_pred_lr = 'NONE'
                     crnn_predict_result_sr = None
                     crnn_pred_sr = 'NONE'
+                    moran_predict_result_lr = None
+                    moran_pred_lr = 'NONE'
+                    moran_predict_result_sr = None
+                    moran_pred_sr = 'NONE'
 
-                # Если включена ветка распознавания, считаем точность распознавания
+                # Если включена ветка распознавания, считаем точность распознавания СТС
                 if self.cfg.enable_rec:
-
                     # CTC Test
                     ctc_sr_n_correct, ctc_cnt, ctc_sr_lev_dis_list, ctc_sr_lev_dis_relation_list, ctc_pred_text, ctc_decode_strings = self.calculate_ctc_pred(tag_scores, label_strs, ctc_sr_lev_dis_list, ctc_sr_lev_dis_relation_list)                    
                     ctc_sr_n_correct_sum += ctc_sr_n_correct
-                    
-                elif self.cfg.recognizer == 'transformer':
-                    # CRNN Test
-                    
-                    # SR
-                    crnn_n_correct_sr, crnn_cnt_sr, crnn_sr_lev_dis_list, crnn_sr_lev_dis_relation_list, crnn_sr_pred_text, crnn_predict_result_sr = self.calculate_crnn_pred(images_sr, label_strs, recognizer, crnn_sr_lev_dis_list, crnn_sr_lev_dis_relation_list)
-                    crnn_n_correct_sr_sum += crnn_n_correct_sr
-                    
-                    # LR
-                    crnn_n_correct_lr, crnn_cnt_lr, crnn_lr_lev_dis_list, crnn_lr_lev_dis_relation_list, crnn_lr_pred_text, crnn_predict_result_lr = self.calculate_crnn_pred(images_lr, label_strs, recognizer, crnn_lr_lev_dis_list, crnn_lr_lev_dis_relation_list)
-                    crnn_n_correct_lr_sum += crnn_n_correct_lr
-
-                    ctc_pred = 'NONE'
-                    ctc_decode_strings = None
                 else:
                     ctc_pred = 'NONE'
                     ctc_decode_strings = None
@@ -745,23 +916,36 @@ class TextSR(base.TextBase):
                         ctc_pred = ctc_decode_strings[index].replace('"', '<quot>')
 
                         self.writer.add_text(f'CTC_pred/{epoch}_epoch/{dataset_name}', ctc_pred_text)
-                    elif self.cfg.recognizer == 'transformer':
-                        ground_truth = label_strs[index].replace('"', '<quot>')
-                        crnn_pred_sr = crnn_predict_result_sr[index].replace('"', '<quot>')
-                        crnn_pred_lr = crnn_predict_result_lr[index].replace('"', '<quot>')
-
-                        self.writer.add_text(f'CRNN_SR_pred/{epoch}_epoch/{dataset_name}', crnn_sr_pred_text)
-                        self.writer.add_text(f'CRNN_LR_pred/{epoch}_epoch/{dataset_name}', crnn_lr_pred_text)
                     
 
                     # Если включена ветка СР или модель предобучена на СР
-                    if self.cfg.enable_sr or self.cfg.train_after_sr or self.cfg.recognizer == 'transformer':
+                    if self.cfg.enable_sr or self.cfg.train_after_sr or (not self.cfg.enable_rec and self.cfg.recognizer == 'transformer'):
+
+                        ground_truth = label_strs[index].replace('"', '<quot>')
+
+                        # ASTER
+
+                        aster_pred_sr = aster_predict_result_sr[index].replace('"', '<quot>')
+                        aster_pred_lr = aster_predict_result_lr[index].replace('"', '<quot>')
+
+                        self.writer.add_text(f'ASTER_SR_pred/{epoch}_epoch/{dataset_name}', aster_sr_pred_text)
+                        self.writer.add_text(f'ASTER_LR_pred/{epoch}_epoch/{dataset_name}', aster_lr_pred_text)
+
+                        # CRNN
 
                         crnn_pred_sr = crnn_predict_result_sr[index].replace('"', '<quot>')
                         crnn_pred_lr = crnn_predict_result_lr[index].replace('"', '<quot>')
 
                         self.writer.add_text(f'CRNN_SR_pred/{epoch}_epoch/{dataset_name}', crnn_sr_pred_text)
                         self.writer.add_text(f'CRNN_LR_pred/{epoch}_epoch/{dataset_name}', crnn_lr_pred_text)
+
+                        # MORAN
+
+                        moran_pred_sr = moran_predict_result_sr[index].replace('"', '<quot>')
+                        moran_pred_lr = moran_predict_result_lr[index].replace('"', '<quot>')
+
+                        self.writer.add_text(f'MORAN_SR_pred/{epoch}_epoch/{dataset_name}', moran_sr_pred_text)
+                        self.writer.add_text(f'MORAN_LR_pred/{epoch}_epoch/{dataset_name}', moran_lr_pred_text)
                         
                         metric_dict['images_and_labels'].append((images_hr.detach().cpu(), images_sr.detach().cpu(), label_strs, crnn_predict_result_sr, crnn_predict_result_lr, ctc_decode_strings))
 
@@ -780,8 +964,22 @@ class TextSR(base.TextBase):
 
                 torch.cuda.empty_cache()
 
+            # Конец валидации
+
+            loss_avg = loss_sum / len(val_loader)
+            self.multi_writer.add_scalar(f'validation/loss/{dataset_name}', loss_avg, iters)
+            mse_loss_avg = mse_loss_sum / len(val_loader)
+            self.multi_writer.add_scalar(f'validation/mse_loss/{dataset_name}', mse_loss_avg, iters)
+            ctc_loss_avg = ctc_loss_sum / len(val_loader)
+            self.multi_writer.add_scalar(f'validation/ctc_loss/{dataset_name}', ctc_loss_avg, iters)
+
+            print('[{}]\t'
+                  'loss {:.3f} | mse_loss {:.3f} | ctc_loss {:.3f}\t'
+                  .format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                          loss, mse_loss, ctc_loss))
+            
             # Если включена ветка СР  или модель предобучена на СР
-            if self.cfg.enable_sr or self.cfg.train_after_sr: 
+            if self.cfg.enable_sr or self.cfg.train_after_sr or (not self.cfg.enable_rec and self.cfg.recognizer == 'transformer'): 
                 # PSNR
 
                 psnr_avg = sum(psnr_batches) / len(psnr_batches)
@@ -796,104 +994,58 @@ class TextSR(base.TextBase):
                 metric_dict['ssim_avg'] = ssim_avg
                 self.writer.add_scalar(f'other/{dataset_name}/ssim_avg', ssim_avg, epoch)
 
-                # CRNN ACC SR
+                print(f'PSNR {float(psnr_avg):.2f} | SSIM {float(ssim_avg):.4f}\t')
 
-                crnn_sr_accuracy = round(crnn_n_correct_sr_sum / cnt_images, 4)
-                metric_dict['crnn_sr_accuracy'] = crnn_sr_accuracy
-                self.writer.add_scalar(f'accuracy/{dataset_name}/crnn_sr_accuracy', crnn_sr_accuracy * 100, epoch)
-                print('crnn_sr_accuracy: %.2f%%' % (crnn_sr_accuracy * 100))
+                # ASTER
 
-                # CRNN LEV DIS SR
-                
-                crnn_sr_lev_dis_relation_avg = round(sum(crnn_sr_lev_dis_relation_list) / cnt_images, 4)
-                metric_dict['crnn_sr_lev_dis_relation_avg'] = crnn_sr_lev_dis_relation_avg
-                self.writer.add_scalar(f'other/{dataset_name}/crnn_sr_lev_dis_relation_avg', crnn_sr_lev_dis_relation_avg, epoch)
+                metric_dict = self.calc_print_external_recognizer('aster',
+                    aster_n_correct_sr_sum,
+                    aster_sr_lev_dis_relation_list,
+                    cnt_images,
+                    metric_dict,
+                    dataset_name,
+                    epoch,
+                    True,
+                    aster_n_correct_lr_sum,
+                    aster_lr_lev_dis_relation_list)
 
-                # CRNN ACC LR
+                # CRNN
+            
+                metric_dict = self.calc_print_external_recognizer('crnn',
+                    crnn_n_correct_sr_sum,
+                    crnn_sr_lev_dis_relation_list,
+                    cnt_images,
+                    metric_dict,
+                    dataset_name,
+                    epoch,
+                    True,
+                    crnn_n_correct_lr_sum,
+                    crnn_lr_lev_dis_relation_list)
 
-                crnn_lr_accuracy = round(crnn_n_correct_lr_sum / cnt_images, 4)
-                metric_dict['crnn_lr_accuracy'] = crnn_lr_accuracy
-                self.writer.add_scalar(f'accuracy/{dataset_name}/crnn_lr_accuracy', crnn_lr_accuracy * 100, epoch)
-                print('crnn_lr_accuracy: %.2f%%' % (crnn_lr_accuracy * 100))
-
-                # CRNN LEV DIS LR
-                
-                crnn_lr_lev_dis_relation_avg = round(sum(crnn_lr_lev_dis_relation_list) / cnt_images, 4)
-                metric_dict['crnn_lr_lev_dis_relation_avg'] = crnn_lr_lev_dis_relation_avg
-                self.writer.add_scalar(f'other/{dataset_name}/crnn_lr_lev_dis_relation_avg', crnn_lr_lev_dis_relation_avg, epoch)
-            else:
-                psnr_avg = 0
-                ssim_avg = 0
-                crnn_sr_accuracy = 0
-                crnn_lr_accuracy = 0
-                crnn_sr_lev_dis_relation_avg = 0
-                crnn_lr_lev_dis_relation_avg = 0
-                print('Ветка сверхразрешения ВЫКЛЮЧЕНА. CRNN, PSNR и SSIM не соответствуют действительности\n')
+                # MORAN
+            
+                metric_dict = self.calc_print_external_recognizer('moran',
+                    moran_n_correct_sr_sum,
+                    moran_sr_lev_dis_relation_list,
+                    cnt_images,
+                    metric_dict,
+                    dataset_name,
+                    epoch,
+                    True,
+                    moran_n_correct_lr_sum,
+                    moran_lr_lev_dis_relation_list)
  
             # Если включена ветка распознавания
             if self.cfg.enable_rec:
-
-                # CTC ACC SR
-
-                ctc_sr_accuracy = round(ctc_sr_n_correct_sum / cnt_images, 4)
-                metric_dict['ctc_sr_accuracy'] = ctc_sr_accuracy
-                self.writer.add_scalar(f'accuracy/{dataset_name}/ctc_sr_accuracy', ctc_sr_accuracy * 100, epoch)
-                print('ctc_sr_accuracy: %.2f%%' % (ctc_sr_accuracy * 100))
-
-                # CTC LEV DIS SR
-                
-                ctc_sr_lev_dis_relation_avg = round(sum(ctc_sr_lev_dis_relation_list) / cnt_images, 4)
-                metric_dict['ctc_sr_lev_dis_relation_avg'] = ctc_sr_lev_dis_relation_avg
-                self.writer.add_scalar(f'other/{dataset_name}/ctc_sr_lev_dis_relation_avg', ctc_sr_lev_dis_relation_avg, epoch)
-            elif self.cfg.recognizer == 'transformer':
-                # CRNN ACC SR
-
-                crnn_sr_accuracy = round(crnn_n_correct_sr_sum / cnt_images, 4)
-                metric_dict['crnn_sr_accuracy'] = crnn_sr_accuracy
-                self.writer.add_scalar(f'accuracy/{dataset_name}/crnn_sr_accuracy', crnn_sr_accuracy * 100, epoch)
-                print('crnn_sr_accuracy: %.2f%%' % (crnn_sr_accuracy * 100))
-
-                # CRNN LEV DIS SR
-                
-                crnn_sr_lev_dis_relation_avg = round(sum(crnn_sr_lev_dis_relation_list) / cnt_images, 4)
-                metric_dict['crnn_sr_lev_dis_relation_avg'] = crnn_sr_lev_dis_relation_avg
-                self.writer.add_scalar(f'other/{dataset_name}/crnn_sr_lev_dis_relation_avg', crnn_sr_lev_dis_relation_avg, epoch)
-
-                # CRNN ACC LR
-
-                crnn_lr_accuracy = round(crnn_n_correct_lr_sum / cnt_images, 4)
-                metric_dict['crnn_lr_accuracy'] = crnn_lr_accuracy
-                self.writer.add_scalar(f'accuracy/{dataset_name}/crnn_lr_accuracy', crnn_lr_accuracy * 100, epoch)
-                print('crnn_lr_accuracy: %.2f%%' % (crnn_lr_accuracy * 100))
-
-                # CRNN LEV DIS LR
-                
-                crnn_lr_lev_dis_relation_avg = round(sum(crnn_lr_lev_dis_relation_list) / cnt_images, 4)
-                metric_dict['crnn_lr_lev_dis_relation_avg'] = crnn_lr_lev_dis_relation_avg
-                self.writer.add_scalar(f'other/{dataset_name}/crnn_lr_lev_dis_relation_avg', crnn_lr_lev_dis_relation_avg, epoch)
-
-                ctc_loss = 0
-                ctc_sr_accuracy = 0
-                ctc_sr_lev_dis_relation_avg = 0
-
-                print('Ветка распознавания ВЫКЛЮЧЕНА. CTC не соответствуют действительности\n')
-            else:
-                ctc_sr_accuracy = 0
-                ctc_sr_lev_dis_relation_avg = 0
-                print('Ветка распознавания ВЫКЛЮЧЕНА. CTC не соответствуют действительности\n')
-
-            print('[{}]\t'
-                  'loss {:.3f} | mse_loss {:.3f} | ctc_loss {:.3f}\t'
-                  'PSNR {:.2f} | SSIM {:.4f}\t'
-                  'crnn_sr_accuracy {:.2f} | crnn_lr_accuracy {:.2f}\t'
-                  'crnn_sr_lev_dis_relation_avg {:.4f} | crnn_lr_lev_dis_relation_avg {:.4f}\t'
-                  'ctc_sr_accuracy {:.2f} | ctc_sr_lev_dis_relation_avg {:.4f}'
-                  .format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                          loss, mse_loss, ctc_loss,
-                          float(psnr_avg), float(ssim_avg),
-                          float(crnn_sr_accuracy), float(crnn_lr_accuracy),
-                          float(crnn_sr_lev_dis_relation_avg), float(crnn_lr_lev_dis_relation_avg),
-                          float(ctc_sr_accuracy), float(ctc_sr_lev_dis_relation_avg), ))
+            
+                metric_dict = self.calc_print_external_recognizer('ctc',
+                    ctc_sr_n_correct_sum,
+                    ctc_sr_lev_dis_relation_list,
+                    cnt_images,
+                    metric_dict,
+                    dataset_name,
+                    epoch,
+                    False)
 
             return metric_dict
 
