@@ -8,6 +8,14 @@ from easydict import EasyDict
 from interfaces.super_resolution import TextSR
 
 torch.manual_seed(1234)
+from multiprocessing import set_start_method
+
+
+import sys
+
+if not sys.warnoptions:
+    import warnings
+    warnings.simplefilter("ignore")
 
 def main(config, args):
     TextSuperResolution = TextSR(config, args)
@@ -21,13 +29,14 @@ def main(config, args):
 
 
 if __name__ == '__main__':
+    set_start_method('spawn')
     parser = argparse.ArgumentParser(description='')
     parser.add_argument('--arch', default='wangji', choices=['wangji', 'tbsrn', 'tsrn', 'bicubic', 'srcnn', 'vdsr', 'srres', 'esrgan', 'rdn',
                                                            'edsr', 'lapsrn'])
     parser.add_argument('--exp_name', required=False, help='Type your experiment name', default='aa')
     parser.add_argument('--test', action='store_true', default=False)
     parser.add_argument('--test_data_dir', type=str, default='../dataset/lmdb/str/TextZoom/test/medium/', help='')
-    parser.add_argument('--batch_size', type=int, default=None, help='')
+    # parser.add_argument('--batch_size', type=int, default=None, help='')
     parser.add_argument('--resume', type=str, default=None, help='')
     parser.add_argument('--vis_dir', type=str, default=None, help='')
     parser.add_argument('--rec', default='aster', choices=['aster', 'moran', 'crnn'])

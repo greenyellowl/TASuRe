@@ -4,7 +4,7 @@ from torch.autograd import Variable
 import numpy as np
 
 class MORN(nn.Module):
-    def __init__(self, nc, targetH, targetW, inputDataType='torch.cuda.FloatTensor', maxBatch=256, CUDA=True):
+    def __init__(self, nc, targetH, targetW, inputDataType='torch.cuda.FloatTensor', maxBatch=512, CUDA=True):
         super(MORN, self).__init__()
         self.targetH = targetH
         self.targetW = targetW

@@ -28,7 +28,7 @@ class TextBase(object):
         self.cfg = config
         self.args = args
         self.load_dataset = MyDataset
-        self.batch_size = args.batch_size if args.batch_size is not None else self.cfg.batch_size
+        self.batch_size = self.cfg.batch_size
         # self.align_collate = alignCollate_real
         # self.align_collate = alignCollate_syn
         # self.mask = self.args.mask
@@ -110,8 +110,10 @@ class TextBase(object):
                                         ).load_dataset()
                     dataset_list.append(test_val_dataset) # создаётся объект класса loadDataset
 
+                    batch_size = cfg.batch_size_val
+                    # batch_size = min(int(self.batch_size / 3), int(len(test_val_dataset) / 3))
                     test_val_loader = torch.utils.data.DataLoader(
-                        test_val_dataset, batch_size=min(self.batch_size, len(test_val_dataset)),
+                        test_val_dataset, batch_size=batch_size,
                         shuffle=False, num_workers=int(cfg.workers),drop_last=True, pin_memory=True)
                     loader_list.append(test_val_loader)
 
@@ -127,8 +129,10 @@ class TextBase(object):
                                           ).load_dataset()
                     dataset_list.append(test_val_dataset) # создаётся объект класса loadDataset
 
+                    batch_size = cfg.batch_size_val
+                    # batch_size = min(int(self.batch_size / 3), int(len(test_val_dataset) / 3))
                     test_val_loader = torch.utils.data.DataLoader(
-                        test_val_dataset, batch_size=min(self.batch_size, len(test_val_dataset)),
+                        test_val_dataset, batch_size=batch_size,
                         shuffle=False, num_workers=int(cfg.workers),drop_last=True, pin_memory=True)
                     loader_list.append(test_val_loader)
         else:
@@ -248,8 +252,8 @@ class TextBase(object):
         model.load_state_dict(torch.load(model_path))
         return model, aster_info
         
-
-    def parse_crnn_data(self, imgs_input):
+    @staticmethod
+    def parse_crnn_data(imgs_input):
         imgs_input = torch.nn.functional.interpolate(imgs_input, (32, 100), mode='bicubic')
         R = imgs_input[:, 0:1, :, :]
         G = imgs_input[:, 1:2, :, :]
@@ -261,8 +265,15 @@ class TextBase(object):
     def MORAN_init(self):
         cfg = self.cfg
         alphabet = ':'.join(string.digits+string.ascii_lowercase+'$')
-        MORAN = moran.MORAN(1, len(alphabet.split(':')), 256, 32, 100, BidirDecoder=True,
-                            inputDataType='torch.cuda.FloatTensor', CUDA=True)
+        MORAN = moran.MORAN(nc=1,
+                            nclass=len(alphabet.split(':')),
+                            nh=256,
+                            targetH=32,
+                            targetW=100,
+                            BidirDecoder=True,
+                            inputDataType='torch.cuda.FloatTensor',
+                            maxBatch=cfg.batch_size,
+                            CUDA=True)
         model_path = self.cfg.moran_pretrained
         self.logging.info('loading pre-trained moran model from %s' % model_path)
         state_dict = torch.load(model_path)
@@ -278,7 +289,8 @@ class TextBase(object):
         MORAN.eval()
         return MORAN
 
-    def parse_moran_data(self, imgs_input):
+    @staticmethod
+    def parse_moran_data(imgs_input, converter_moran):
         batch_size = imgs_input.shape[0]
         imgs_input = torch.nn.functional.interpolate(imgs_input, (32, 100), mode='bicubic')
         R = imgs_input[:, 0:1, :, :]
@@ -288,7 +300,7 @@ class TextBase(object):
         text = torch.LongTensor(batch_size * 5)
         length = torch.IntTensor(batch_size)
         max_iter = 20
-        t, l = self.converter_moran.encode(['0' * max_iter] * batch_size)
+        t, l = converter_moran.encode(['0' * max_iter] * batch_size)
         utils_moran.loadData(text, t)
         utils_moran.loadData(length, l)
         return tensor, length, text, text
@@ -305,11 +317,12 @@ class TextBase(object):
         aster = torch.nn.DataParallel(aster, device_ids=range(cfg.ngpu))
         return aster, aster_info
 
-    def parse_aster_data(self, imgs_input):
-        cfg = self.cfg
+    @staticmethod
+    def parse_aster_data(cfg, device, imgs_input):
+        # cfg = self.cfg
         aster_info = AsterInfo(cfg.voc_type)
         input_dict = {}
-        images_input = imgs_input.to(self.device)
+        images_input = imgs_input.to(device)
         input_dict['images'] = images_input * 2 - 1
         batch_size = images_input.shape[0]
         input_dict['rec_targets'] = torch.IntTensor(batch_size, aster_info.max_len).fill_(1)

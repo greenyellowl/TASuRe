@@ -1,4 +1,5 @@
-from this import d
+import re
+# from this import d
 from turtle import update
 import torch
 from torch.optim.lr_scheduler import ReduceLROnPlateau, ExponentialLR
@@ -25,6 +26,10 @@ from einops import rearrange
 from ctcdecode import CTCBeamDecoder
 
 import time
+
+from multiprocessing import Pool
+from multiprocessing import set_start_method
+from functools import partial
 
 step = 0
 easy_test_times = 0
@@ -68,6 +73,7 @@ class TextSR(base.TextBase):
                            \n
                          BRANCHES:  \n
                          enable_sr: {cfg.enable_sr}  \n
+                         enable_ConvNext: {cfg.enable_ConvNext}  \n
                          enable_rec: {cfg.enable_rec}  \n
                            \n
                          freeze_sr: {cfg.freeze_sr}  \n
@@ -345,7 +351,7 @@ class TextSR(base.TextBase):
                     ssim_avg_sum = 0
 
                     cnt = 0
-                    
+                    torch.cuda.empty_cache()
                     for k, val_loader in enumerate(test_val_loader_list):
                         dataset_name = val_loader.dataset.dataset_name
 
@@ -478,8 +484,8 @@ class TextSR(base.TextBase):
                 self.writer.add_scalar(f'accuracy_avg/ctc_sr_accuracy', ctc_sr_accuracy_sum / cnt * 100, epoch)
                 self.writer.add_scalar(f'other_avg/ctc_sr_lev_dis_relation_avg', ctc_sr_lev_dis_relation_avg_sum / cnt, epoch)
             
-
-    def get_crnn_pred(self, outputs):
+    @staticmethod
+    def get_crnn_pred(outputs):
         alphabet = '-0123456789abcdefghijklmnopqrstuvwxyz'
         predict_result = []
         for output in outputs:
@@ -547,85 +553,76 @@ class TextSR(base.TextBase):
         return current_row[n]
 
 
-    def calculate_aster_pred(self, images, label_strs, aster, aster_info, aster_lev_dis_list, aster_lev_dis_relation_list):
-        dict_sr = self.parse_aster_data(images[:, :3, :, :])
-        output_sr = aster(dict_sr)
-        pred_rec_sr = output_sr['output']['pred_rec']
-        pred_str_sr, _ = get_str_list(pred_rec_sr, dict_sr['rec_targets'], dataset=aster_info)
+    # def calculate_aster_pred_par(self, label_strs, aster, aster_info, bundle):
+    #     images, aster_lev_dis_list, aster_lev_dis_relation_list = bundle
+        # return self.calculate_aster_pred(label_strs, aster, aster_info, images, aster_lev_dis_list, aster_lev_dis_relation_list)
 
+    @staticmethod
+    def calculate_acc_lev_dis(cfg, pred_str_sr, label_strs, lev_dis_list, lev_dis_relation_list):
         cnt = 0
         n_correct = 0
-        pred_text = 'target -> aster_pred  \n'
+        pred_text = 'target -> pred  \n'
         for pred, target in zip(pred_str_sr, label_strs):
-            if self.cfg.letters == 'lower':
+            if cfg.letters == 'lower':
                 target = target.lower()
-            elif self.cfg.letters == 'upper':
+            elif cfg.letters == 'upper':
                 target = target.upper()
                 
             pred_text += target+' -> '+pred+"  \n"
-            lev_dis = self.levenshtein_distance(target, pred)
-            aster_lev_dis_list.append(lev_dis)
-            aster_lev_dis_relation_list.append(lev_dis / len(target) if len(target) > 0 else lev_dis)
+            lev_dis = TextSR.levenshtein_distance(target, pred)
+            lev_dis_list.append(lev_dis)
+            lev_dis_relation_list.append(lev_dis / len(target) if len(target) > 0 else lev_dis)
             if pred == target:
                 n_correct += 1
-            cnt += 1        
-        
-        return n_correct, cnt, aster_lev_dis_list, aster_lev_dis_relation_list, pred_text, pred_str_sr
-        
+            cnt += 1
+        return n_correct, cnt, lev_dis_list, lev_dis_relation_list, pred_text
 
-    def calculate_crnn_pred(self, images, label_strs, crnn, crnn_lev_dis_list, crnn_lev_dis_relation_list):
-        crnn_dict = self.parse_crnn_data(images[:, :3, :, :])
+    @staticmethod
+    def calculate_aster_pred(images, aster_lev_dis_list, aster_lev_dis_relation_list, cfg, device, label_strs, aster, aster_info):
+        dict_sr = TextSR.parse_aster_data(cfg, device, images[:, :3, :, :])
+        output_sr = aster(dict_sr)
+        pred_rec_sr = output_sr['output']['pred_rec']
+        pred_str_sr, _ = get_str_list(pred_rec_sr, dict_sr['rec_targets'], dataset=aster_info)
+        
+        return TextSR.calculate_acc_lev_dis(cfg, pred_str_sr, label_strs, aster_lev_dis_list, aster_lev_dis_relation_list), pred_str_sr
+        
+    @staticmethod
+    def calculate_crnn_pred(images, crnn_lev_dis_list, crnn_lev_dis_relation_list, cfg, label_strs, crnn):
+        crnn_dict = TextSR.parse_crnn_data(images[:, :3, :, :])
         crnn_output = crnn(crnn_dict)
         crnn_outputs = crnn_output.permute(1, 0, 2).contiguous()
-        crnn_predict_result = self.get_crnn_pred(crnn_outputs)
-
-        crnn_cnt = 0
-        crnn_n_correct = 0
-        crnn_pred_text = 'target -> crnn_pred  \n'
-        for pred, target in zip(crnn_predict_result, label_strs):
-            if self.cfg.letters == 'lower':
-                target = target.lower()
-            elif self.cfg.letters == 'upper':
-                target = target.upper()
-                
-            crnn_pred_text += target+' -> '+pred+"  \n"
-            lev_dis = self.levenshtein_distance(target, pred)
-            crnn_lev_dis_list.append(lev_dis)
-            crnn_lev_dis_relation_list.append(lev_dis / len(target) if len(target) > 0 else lev_dis)
-            if pred == target:
-                crnn_n_correct += 1
-            crnn_cnt += 1        
+        crnn_predict_result = TextSR.get_crnn_pred(crnn_outputs)
         
-        return crnn_n_correct, crnn_cnt, crnn_lev_dis_list, crnn_lev_dis_relation_list, crnn_pred_text, crnn_predict_result
+        return TextSR.calculate_acc_lev_dis(cfg, crnn_predict_result, label_strs, crnn_lev_dis_list, crnn_lev_dis_relation_list), crnn_predict_result
     
-
-    def calculate_moran_pred(self, images, label_strs, moran, moran_lev_dis_list, moran_lev_dis_relation_list):
-        moran_input = self.parse_moran_data(images[:, :3, :, :])
+    @staticmethod
+    def calculate_moran_pred(images, moran_lev_dis_list, moran_lev_dis_relation_list, label_strs, moran, converter_moran, cfg):
+        moran_input = TextSR.parse_moran_data(images[:, :3, :, :], converter_moran)
         moran_output = moran(moran_input[0], moran_input[1], moran_input[2], moran_input[3], test=True,
                                 debug=True)
         preds, preds_reverse = moran_output[0]
         _, preds = preds.max(1)
-        sim_preds = self.converter_moran.decode(preds.data, moran_input[1].data)
+        sim_preds = converter_moran.decode(preds.data, moran_input[1].data)
         pred_str_sr = [pred.split('$')[0] for pred in sim_preds]
 
         cnt = 0
         n_correct = 0
         pred_text = 'target -> moran_pred  \n'
         for pred, target in zip(pred_str_sr, label_strs):
-            if self.cfg.letters == 'lower':
+            if cfg.letters == 'lower':
                 target = target.lower()
-            elif self.cfg.letters == 'upper':
+            elif cfg.letters == 'upper':
                 target = target.upper()
                 
             pred_text += target+' -> '+pred+"  \n"
-            lev_dis = self.levenshtein_distance(target, pred)
+            lev_dis = TextSR.levenshtein_distance(target, pred)
             moran_lev_dis_list.append(lev_dis)
             moran_lev_dis_relation_list.append(lev_dis / len(target) if len(target) > 0 else lev_dis)
             if pred == target:
                 n_correct += 1
             cnt += 1        
         
-        return n_correct, cnt, moran_lev_dis_list, moran_lev_dis_relation_list, pred_text, pred_str_sr
+        return TextSR.calculate_acc_lev_dis(cfg, pred_str_sr, label_strs, moran_lev_dis_list, moran_lev_dis_relation_list), pred_str_sr
 
 
     def calculate_ctc_pred(self, tag_scores, label_strs, ctc_lev_dis_list, ctc_lev_dis_relation_list):
@@ -633,26 +630,25 @@ class TextSR(base.TextBase):
         ctc_n_correct = 0
         ctc_pred_text = 'target -> ctc_decode_string  \n'
         ctc_decode_strings = self.ctc_decode(tag_scores)
-        if self.cfg.enable_rec:
-            for ctc_decode_string, target in zip(ctc_decode_strings, label_strs):
-                if self.cfg.letters == 'lower':
-                    target = target.lower()
-                elif self.cfg.letters == 'upper':
-                    target = target.upper()
+        for ctc_decode_string, target in zip(ctc_decode_strings, label_strs):
+            if self.cfg.letters == 'lower':
+                target = target.lower()
+            elif self.cfg.letters == 'upper':
+                target = target.upper()
 
-                ctc_pred_text += target+' -> '+ctc_decode_string+"  \n"
-                lev_dis = self.levenshtein_distance(target, ctc_decode_string)
-                ctc_lev_dis_list.append(lev_dis)
-                ctc_lev_dis_relation_list.append(lev_dis / len(target) if len(target) > 0 else lev_dis)
-                if ctc_decode_string == target:
-                    ctc_n_correct += 1
+            ctc_pred_text += target+' -> '+ctc_decode_string+"  \n"
+            lev_dis = self.levenshtein_distance(target, ctc_decode_string)
+            ctc_lev_dis_list.append(lev_dis)
+            ctc_lev_dis_relation_list.append(lev_dis / len(target) if len(target) > 0 else lev_dis)
+            if ctc_decode_string == target:
+                ctc_n_correct += 1
             ctc_cnt += 1
 
         return ctc_n_correct, ctc_cnt, ctc_lev_dis_list, ctc_lev_dis_relation_list, ctc_pred_text, ctc_decode_strings
     
     
     def get_follow_metric_name(self):
-        if self.cfg.enable_rec == True or self.cfg.recognizer == 'transformer':
+        if (self.cfg.enable_rec == True or self.cfg.recognizer == 'transformer') and self.cfg.rec_best_model_save != 'ssim':
             if self.cfg.acc_best_model == 'crnn':
                 metric_name = 'crnn_sr'
             elif self.cfg.acc_best_model == 'ctc':
@@ -805,7 +801,6 @@ class TextSR(base.TextBase):
 
         return metric_dict
     
-    
     # валидация одного датасета
     def eval(self, model, val_loader, image_crit, index, aster, crnn, moran, aster_info, dataset_name, iters, epoch):
         with torch.no_grad():
@@ -896,9 +891,9 @@ class TextSR(base.TextBase):
                 'ssim_avg': 0.0, 
                 'images_and_labels': []}
 
-            image_start_index = 0
-
-            for i, data in (enumerate(val_loader)):
+            pbar = tqdm.tqdm((enumerate(val_loader)), leave = False, desc='evaluation', total=len(val_loader))
+            for i, data in pbar:
+                info_string = ''
                 # Получение данных из датасетов
 
                 images_hr, images_lr, label_strs, _ = data
@@ -931,48 +926,76 @@ class TextSR(base.TextBase):
                     psnr_batches.append(self.cal_psnr(images_sr, images_hr))
                     ssim_batches.append(self.cal_ssim(images_sr, images_hr))
 
-                # Точность и дистанция Левинштейна
+                # Точность и дистанция Левенштейна
                 if self.cfg.enable_sr or self.cfg.train_after_sr or (not self.cfg.enable_rec and self.cfg.recognizer == 'transformer'):
-                    # ASTER
-                    
-                    # SR
-                    aster_n_correct_sr, aster_cnt_sr, aster_sr_lev_dis_list, aster_sr_lev_dis_relation_list, aster_sr_pred_text, aster_predict_result_sr = self.calculate_aster_pred(images_sr, label_strs, aster, aster_info, aster_sr_lev_dis_list, aster_sr_lev_dis_relation_list)
-                    aster_n_correct_sr_sum += aster_n_correct_sr
-                    
-                    # LR
-                    aster_n_correct_lr, aster_cnt_lr, aster_lr_lev_dis_list, aster_lr_lev_dis_relation_list, aster_lr_pred_text, aster_predict_result_lr = self.calculate_aster_pred(images_lr, label_strs, aster, aster_info, aster_lr_lev_dis_list, aster_lr_lev_dis_relation_list)
-                    aster_n_correct_lr_sum += aster_n_correct_lr
-                    
-                    # HR
-                    aster_n_correct_hr, aster_cnt_hr, aster_hr_lev_dis_list, aster_hr_lev_dis_relation_list, aster_hr_pred_text, aster_predict_result_hr = self.calculate_aster_pred(images_hr, label_strs, aster, aster_info, aster_hr_lev_dis_list, aster_hr_lev_dis_relation_list)
-                    aster_n_correct_hr_sum += aster_n_correct_hr
 
+                    
+                    if epoch % self.cfg.AsterValInterval:
+                        pbar.set_description("calc ASTER")
+                        # ASTER
+                        with Pool(3) as p:
+
+                            f_calculate = partial(TextSR.calculate_aster_pred, cfg=self.cfg, device=self.device, label_strs=label_strs, aster=aster, aster_info=aster_info)
+                            input = ((images_sr, aster_sr_lev_dis_list, aster_sr_lev_dis_relation_list),
+                                    (images_lr, aster_lr_lev_dis_list, aster_lr_lev_dis_relation_list),
+                                    (images_hr, aster_hr_lev_dis_list, aster_hr_lev_dis_relation_list))
+                            result = list(p.starmap(f_calculate, input))
+                        
+                        (aster_n_correct_sr, aster_cnt_sr, aster_sr_lev_dis_list, aster_sr_lev_dis_relation_list, aster_sr_pred_text), aster_predict_result_sr = result[0]
+                        (aster_n_correct_lr, aster_cnt_lr, aster_lr_lev_dis_list, aster_lr_lev_dis_relation_list, aster_lr_pred_text), aster_predict_result_lr = result[1]
+                        (aster_n_correct_hr, aster_cnt_hr, aster_hr_lev_dis_list, aster_hr_lev_dis_relation_list, aster_hr_pred_text), aster_predict_result_hr = result[2]
+                        
+                        # # SR
+                        # result = self.calculate_aster_pred(images_sr, aster_sr_lev_dis_list, aster_sr_lev_dis_relation_list, self.cfg, self.device, label_strs, aster, aster_info)
+                        # (aster_n_correct_sr, aster_cnt_sr, aster_sr_lev_dis_list, aster_sr_lev_dis_relation_list, aster_sr_pred_text), aster_predict_result_sr = result
+                        # aster_n_correct_sr_sum += aster_n_correct_sr
+                        
+                        # # LR
+                        # result = self.calculate_aster_pred(images_lr, aster_lr_lev_dis_list, aster_lr_lev_dis_relation_list, self.cfg, self.device, label_strs, aster, aster_info)
+                        # (aster_n_correct_lr, aster_cnt_lr, aster_lr_lev_dis_list, aster_lr_lev_dis_relation_list, aster_lr_pred_text), aster_predict_result_lr = result
+                        # aster_n_correct_lr_sum += aster_n_correct_lr
+                        
+                        # # HR
+                        # result = self.calculate_aster_pred(images_hr, aster_hr_lev_dis_list, aster_hr_lev_dis_relation_list, self.cfg, self.device, label_strs, aster, aster_info)
+                        # (aster_n_correct_hr, aster_cnt_hr, aster_hr_lev_dis_list, aster_hr_lev_dis_relation_list, aster_hr_pred_text), aster_predict_result_hr = result
+                        # aster_n_correct_hr_sum += aster_n_correct_hr
+
+                    pbar.set_description("calc CRNN")
                     # CRNN
                     
-                    # SR
-                    crnn_n_correct_sr, crnn_cnt_sr, crnn_sr_lev_dis_list, crnn_sr_lev_dis_relation_list, crnn_sr_pred_text, crnn_predict_result_sr = self.calculate_crnn_pred(images_sr, label_strs, crnn, crnn_sr_lev_dis_list, crnn_sr_lev_dis_relation_list)
+                    with Pool(3) as p:
+
+                        f_calculate = partial(TextSR.calculate_crnn_pred, cfg=self.cfg, label_strs=label_strs, crnn=crnn)
+                        input = ((images_sr, crnn_sr_lev_dis_list, crnn_sr_lev_dis_relation_list),
+                                 (images_lr, crnn_lr_lev_dis_list, crnn_lr_lev_dis_relation_list),
+                                 (images_hr, crnn_hr_lev_dis_list, crnn_hr_lev_dis_relation_list))
+                        result = list(p.starmap(f_calculate, input))
+                    
+                    (crnn_n_correct_sr, crnn_cnt_sr, crnn_sr_lev_dis_list, crnn_sr_lev_dis_relation_list, crnn_sr_pred_text), crnn_predict_result_sr = result[0]
+                    (crnn_n_correct_lr, crnn_cnt_lr, crnn_lr_lev_dis_list, crnn_lr_lev_dis_relation_list, crnn_lr_pred_text), crnn_predict_result_lr = result[1]
+                    (crnn_n_correct_hr, crnn_cnt_hr, crnn_hr_lev_dis_list, crnn_hr_lev_dis_relation_list, crnn_hr_pred_text), crnn_predict_result_hr = result[2]
+
                     crnn_n_correct_sr_sum += crnn_n_correct_sr
-                    
-                    # LR
-                    crnn_n_correct_lr, crnn_cnt_lr, crnn_lr_lev_dis_list, crnn_lr_lev_dis_relation_list, crnn_lr_pred_text, crnn_predict_result_lr = self.calculate_crnn_pred(images_lr, label_strs, crnn, crnn_lr_lev_dis_list, crnn_lr_lev_dis_relation_list)
                     crnn_n_correct_lr_sum += crnn_n_correct_lr
-                    
-                    # HR
-                    crnn_n_correct_hr, crnn_cnt_hr, crnn_hr_lev_dis_list, crnn_hr_lev_dis_relation_list, crnn_hr_pred_text, crnn_predict_result_hr = self.calculate_crnn_pred(images_hr, label_strs, crnn, crnn_hr_lev_dis_list, crnn_hr_lev_dis_relation_list)
                     crnn_n_correct_hr_sum += crnn_n_correct_hr
 
+                    pbar.set_description("calc MORAN")
                     # MORAN
                     
-                    # SR
-                    moran_n_correct_sr, moran_cnt_sr, moran_sr_lev_dis_list, moran_sr_lev_dis_relation_list, moran_sr_pred_text, moran_predict_result_sr = self.calculate_moran_pred(images_sr, label_strs, moran, moran_sr_lev_dis_list, moran_sr_lev_dis_relation_list)
+                    with Pool(3) as p:
+
+                        f_calculate = partial(TextSR.calculate_moran_pred, cfg=self.cfg, label_strs=label_strs, moran=moran, converter_moran=self.converter_moran)
+                        input = ((images_sr, moran_sr_lev_dis_list, moran_sr_lev_dis_relation_list),
+                                 (images_lr, moran_lr_lev_dis_list, moran_lr_lev_dis_relation_list),
+                                 (images_hr, moran_hr_lev_dis_list, moran_hr_lev_dis_relation_list))
+                        result = list(p.starmap(f_calculate, input))
+                    
+                    (moran_n_correct_sr, moran_cnt_sr, moran_sr_lev_dis_list, moran_sr_lev_dis_relation_list, moran_sr_pred_text), moran_predict_result_sr = result[0]
+                    (moran_n_correct_lr, moran_cnt_lr, moran_lr_lev_dis_list, moran_lr_lev_dis_relation_list, moran_lr_pred_text), moran_predict_result_lr = result[1]
+                    (moran_n_correct_hr, moran_cnt_hr, moran_hr_lev_dis_list, moran_hr_lev_dis_relation_list, moran_hr_pred_text), moran_predict_result_hr = result[2]
+
                     moran_n_correct_sr_sum += moran_n_correct_sr
-                    
-                    # LR
-                    moran_n_correct_lr, moran_cnt_lr, moran_lr_lev_dis_list, moran_lr_lev_dis_relation_list, moran_lr_pred_text, moran_predict_result_lr = self.calculate_moran_pred(images_lr, label_strs, moran, moran_lr_lev_dis_list, moran_lr_lev_dis_relation_list)
                     moran_n_correct_lr_sum += moran_n_correct_lr
-                    
-                    # HR
-                    moran_n_correct_hr, moran_cnt_hr, moran_hr_lev_dis_list, moran_hr_lev_dis_relation_list, moran_hr_pred_text, moran_predict_result_hr = self.calculate_moran_pred(images_hr, label_strs, moran, moran_hr_lev_dis_list, moran_hr_lev_dis_relation_list)
                     moran_n_correct_hr_sum += moran_n_correct_hr
 
                 else:
@@ -997,7 +1020,8 @@ class TextSR(base.TextBase):
 
                 # Если включена ветка распознавания, считаем точность распознавания СТС
                 if self.cfg.enable_rec:
-                    # CTC Test
+                    pbar.set_description("calc CTC")
+                    # CTC
                     ctc_sr_n_correct, ctc_cnt, ctc_sr_lev_dis_list, ctc_sr_lev_dis_relation_list, ctc_pred_text, ctc_decode_strings = self.calculate_ctc_pred(tag_scores, label_strs, ctc_sr_lev_dis_list, ctc_sr_lev_dis_relation_list)                    
                     ctc_sr_n_correct_sum += ctc_sr_n_correct
                 else:
@@ -1107,60 +1131,62 @@ class TextSR(base.TextBase):
 
                 # ASTER
 
-                metric_dict = self.calc_print_external_recognizer('aster',
-                    aster_n_correct_sr_sum,
-                    aster_sr_lev_dis_relation_list,
-                    cnt_images,
-                    metric_dict,
-                    dataset_name,
-                    epoch,
-                    True,
-                    aster_n_correct_lr_sum,
-                    aster_lr_lev_dis_relation_list,
-                    aster_n_correct_hr_sum,
-                    aster_hr_lev_dis_relation_list)
+                metric_dict = self.calc_print_external_recognizer(name='aster',
+                    n_correct_sr_sum=aster_n_correct_sr_sum,
+                    sr_lev_dis_relation_list=aster_sr_lev_dis_relation_list,
+                    cnt_images=cnt_images,
+                    metric_dict=metric_dict,
+                    dataset_name=dataset_name,
+                    epoch=epoch,
+                    calc_lr=True,
+                    n_correct_lr_sum=aster_n_correct_lr_sum,
+                    lr_lev_dis_relation_list=aster_lr_lev_dis_relation_list,
+                    calc_hr=True,
+                    n_correct_hr_sum=aster_n_correct_hr_sum,
+                    hr_lev_dis_relation_list=aster_hr_lev_dis_relation_list)
 
                 # CRNN
             
-                metric_dict = self.calc_print_external_recognizer('crnn',
-                    crnn_n_correct_sr_sum,
-                    crnn_sr_lev_dis_relation_list,
-                    cnt_images,
-                    metric_dict,
-                    dataset_name,
-                    epoch,
-                    True,
-                    crnn_n_correct_lr_sum,
-                    crnn_lr_lev_dis_relation_list,
-                    crnn_n_correct_hr_sum,
-                    crnn_hr_lev_dis_relation_list)
+                metric_dict = self.calc_print_external_recognizer(name='crnn',
+                    n_correct_sr_sum=crnn_n_correct_sr_sum,
+                    sr_lev_dis_relation_list=crnn_sr_lev_dis_relation_list,
+                    cnt_images=cnt_images,
+                    metric_dict=metric_dict,
+                    dataset_name=dataset_name,
+                    epoch=epoch,
+                    calc_lr=True,
+                    n_correct_lr_sum=crnn_n_correct_lr_sum,
+                    lr_lev_dis_relation_list=crnn_lr_lev_dis_relation_list,
+                    calc_hr=True,
+                    n_correct_hr_sum=crnn_n_correct_hr_sum,
+                    hr_lev_dis_relation_list=crnn_hr_lev_dis_relation_list)
 
                 # MORAN
             
-                metric_dict = self.calc_print_external_recognizer('moran',
-                    moran_n_correct_sr_sum,
-                    moran_sr_lev_dis_relation_list,
-                    cnt_images,
-                    metric_dict,
-                    dataset_name,
-                    epoch,
-                    True,
-                    moran_n_correct_lr_sum,
-                    moran_lr_lev_dis_relation_list,
-                    moran_n_correct_hr_sum,
-                    moran_hr_lev_dis_relation_list)
+                metric_dict = self.calc_print_external_recognizer(name='moran',
+                    n_correct_sr_sum=moran_n_correct_sr_sum,
+                    sr_lev_dis_relation_list=moran_sr_lev_dis_relation_list,
+                    cnt_images=cnt_images,
+                    metric_dict=metric_dict,
+                    dataset_name=dataset_name,
+                    epoch=epoch,
+                    calc_lr=True,
+                    n_correct_lr_sum=moran_n_correct_lr_sum,
+                    lr_lev_dis_relation_list=moran_lr_lev_dis_relation_list,
+                    calc_hr=True,
+                    n_correct_hr_sum=moran_n_correct_hr_sum,
+                    hr_lev_dis_relation_list=moran_hr_lev_dis_relation_list)
  
             # Если включена ветка распознавания
             if self.cfg.enable_rec:
             
                 metric_dict = self.calc_print_external_recognizer('ctc',
-                    ctc_sr_n_correct_sum,
-                    ctc_sr_lev_dis_relation_list,
-                    cnt_images,
-                    metric_dict,
-                    dataset_name,
-                    epoch,
-                    False)
+                    n_correct_sr_sum=ctc_sr_n_correct_sum,
+                    sr_lev_dis_relation_list=ctc_sr_lev_dis_relation_list,
+                    cnt_images=cnt_images,
+                    metric_dict=metric_dict,
+                    dataset_name=dataset_name,
+                    epoch=epoch)
 
             return metric_dict
 

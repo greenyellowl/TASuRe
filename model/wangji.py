@@ -148,7 +148,7 @@ class Wangji(nn.Module):
             hidden_size = input_size
             num_layers = 2
             batch_first = True
-            bidirectional = True
+            bidirectional = False
             tagset_size  = self.cfg.FULL_VOCAB_SIZE
 
             if cfg.recognizer == 'lstm':

@@ -32,7 +32,8 @@ def load_confuse_matrix():
 
     return rearrange_data
 
-weight_table = load_confuse_matrix()
+# weight_table = load_confuse_matrix()
+weight_table = []
 def weight_cross_entropy(pred, gt):
     global weight_table
     batch = gt.shape[0]

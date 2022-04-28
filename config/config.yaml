@@ -43,15 +43,37 @@ test_val_textzoom_data_dir: [
   '/TextZoom/test/hard',
 ]
 
-# MODEL
+# COMMON
 
-scale_factor: 2
 width: 64
 height: 32
-convNext_type: 'S' # T, S, L
+batch_size: 355
+batch_size_val: 70
+epochs: 1000
+lr: 0.001
+scale_factor: 2
+workers: 24
+fp16: True
 
+# resume: '/home/helen/code/TextSR/checkpoint/log_2022-04-25_02_21_43.606800 - 39/model_best.pth'
+resume: '/home/helen/ssd/checkpoint/log_2022-04-28_03_27_08.635572/checkpoint.pth'
+# resume: ''
 
-# TRAIN PROCCES
+# LOSS
+
+lambda_mse: 10
+lambda_ctc: 1
+
+# MODEL STRUCTURE
+
+convNext_type: 'L' # T, S, L
+acc_best_model: 'ctc' # ctc, crnn. По какому распознавателю сохранять лучшую модель
+rec_best_model_save: 'ssim' # ssim, lev_dis, acc По какой метрике сохранять лучшую модель
+recognizer: 'lstm' # transformer или lstm.
+recognizer_input: 'convnext' # att, convnext. Вход распознавателя
+recognizer_input_convnext: 1 # 1, 2
+
+# BRANCHES
 
 enable_sr: True
 enable_ConvNext: True
@@ -63,36 +85,7 @@ freeze_convnext: False
 
 train_after_sr: False
 
-batch_size: 70
-epochs: 1000
-cuda: True
-ngpu: 1
-workers: 24
-lr: 0.001
-
-scheduler_plateau_patience: 2
-scheduler_plateau_cooldown: 6
-# scheduler_warmup_epoch = scheduler_plateau_cooldown
-scheduler_plateau_factor: 0.8
-min_lr: 1e-20
-
-# resume: '/home/helen/code/TextSR/checkpoint/log_2022-04-25_02_21_43.606800 - 39/model_best.pth'
-# resume: '/home/helen/ssd/checkpoint/log_2022-04-25_21_53_18.130641/checkpoint.pth'
-resume: ''
-
-displayInterval: 10 #display loss
-# saveInterval: 3560000000
-saveBestModel: True
-
-# manualSeed: 1234
-
-ckpt_dir: './ckpt/'
-voc_type: 'all' #'digits lower upper all'
-adadelta: False
-adam: True
-beta1: 0.5
-keep_ratio: False
-max_word_len: 32
+# LETTERS
 
 letters: 'lower' # lower upper all
 # большие и маленькие английские буквы + 10 цифр + 25 символов + пробел
@@ -103,32 +96,42 @@ TGT_VOCAB_SIZE: 62
 FULL_VOCAB_SIZE: 66
 max_len: 32
 
-# LOSS
+# SCHEDULER
 
-lambda_mse: 10
-lambda_ctc: 1
+scheduler_plateau_patience: 5
+scheduler_plateau_cooldown: 6
+# scheduler_warmup_epoch = scheduler_plateau_cooldown
+scheduler_plateau_factor: 0.8
+min_lr: 1e-20
 
-acc_best_model: 'ctc' # ctc, crnn. По какому распознавателю сохранять лучшую модель
-rec_best_model_save: 'lev_dis' # lev_dis, acc По какой метрике сохранять лучшую модель распознавания
-recognizer: 'lstm' # transformer или lstm.
-recognizer_input: 'att' # att, convnext. Вход распознавателя
-recognizer_input_convnext: 1 # 1, 2
-
-fp16: True
-
-n_vis: 10
-vis_dir: 'demo'
-valInterval: -1 #-1, val at the end of epoch
+# PRETRAINED
 rec_pretrained: './pretrained/ASTER.pth.tar'
 moran_pretrained: './pretrained/MORAN.pth'
 crnn_pretrained: './pretrained/CRNN.pth'
 transformer_pretrained: './pretrained/pretrain_transformer.pth'
 confuse_path: './pretrained/confuse.pkl'
 
-norm_mean: [0.485, 0.456, 0.406]
-norm_std: [0.229, 0.224, 0.225]
+# TRAIN PROCCES
+
+displayInterval: 10 #display loss
+# saveInterval: 3560000000
+valInterval: -1 #-1, val at the end of epoch
+AsterValInterval: 10
+saveBestModel: True
 
 eval: True
 
-CONVERT:
-  n_convert: 10
+cuda: True
+ngpu: 1
+voc_type: 'all' #'digits lower upper all'
+beta1: 0.5
+
+norm_mean: [0.485, 0.456, 0.406]
+norm_std: [0.229, 0.224, 0.225]
+
+# manualSeed: 1234
+
+keep_ratio: False
+max_word_len: 32
+
+vis_dir: 'demo'
