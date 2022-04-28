@@ -323,26 +323,29 @@ class TextSR(base.TextBase):
 
                     metrics_dict_datasets = {}
 
-                    aster_sr_accuracy_sum = 0
-                    aster_sr_lev_dis_relation_avg_sum = 0
-                    aster_lr_accuracy_sum = 0
-                    aster_lr_lev_dis_relation_avg_sum = 0
-                    aster_hr_accuracy_sum = 0
-                    aster_hr_lev_dis_relation_avg_sum = 0
+                    if epoch % self.cfg.AsterValInterval == 0 and epoch != 0:
+                        aster_sr_accuracy_sum = 0
+                        aster_sr_lev_dis_relation_avg_sum = 0
+                        aster_lr_accuracy_sum = 0
+                        aster_lr_lev_dis_relation_avg_sum = 0
+                        aster_hr_accuracy_sum = 0
+                        aster_hr_lev_dis_relation_avg_sum = 0
 
-                    crnn_sr_accuracy_sum = 0
-                    crnn_sr_lev_dis_relation_avg_sum = 0
-                    crnn_lr_accuracy_sum = 0
-                    crnn_lr_lev_dis_relation_avg_sum = 0
-                    crnn_hr_accuracy_sum = 0
-                    crnn_hr_lev_dis_relation_avg_sum = 0
+                    if epoch % self.cfg.CrnnValInterval == 0 and epoch != 0:
+                        crnn_sr_accuracy_sum = 0
+                        crnn_sr_lev_dis_relation_avg_sum = 0
+                        crnn_lr_accuracy_sum = 0
+                        crnn_lr_lev_dis_relation_avg_sum = 0
+                        crnn_hr_accuracy_sum = 0
+                        crnn_hr_lev_dis_relation_avg_sum = 0
 
-                    moran_sr_accuracy_sum = 0
-                    moran_sr_lev_dis_relation_avg_sum = 0
-                    moran_lr_accuracy_sum = 0
-                    moran_lr_lev_dis_relation_avg_sum = 0
-                    moran_hr_accuracy_sum = 0
-                    moran_hr_lev_dis_relation_avg_sum = 0
+                    if epoch % self.cfg.MoranValInterval == 0 and epoch != 0:
+                        moran_sr_accuracy_sum = 0
+                        moran_sr_lev_dis_relation_avg_sum = 0
+                        moran_lr_accuracy_sum = 0
+                        moran_lr_lev_dis_relation_avg_sum = 0
+                        moran_hr_accuracy_sum = 0
+                        moran_hr_lev_dis_relation_avg_sum = 0
 
                     ctc_sr_accuracy_sum = 0
                     ctc_sr_lev_dis_relation_avg_sum = 0
@@ -368,26 +371,29 @@ class TextSR(base.TextBase):
                         best_history_follow_metric_values = self.update_best_metric(metrics_dict, best_history_follow_metric_values, dataset_name, epoch)
 
                         # Рассчёт средних метрик за эпоху
-                        aster_sr_accuracy_sum += metrics_dict['aster_sr_accuracy']
-                        aster_sr_lev_dis_relation_avg_sum += metrics_dict['aster_sr_lev_dis_relation_avg']
-                        aster_lr_accuracy_sum += metrics_dict['aster_lr_accuracy']
-                        aster_lr_lev_dis_relation_avg_sum += metrics_dict['aster_lr_lev_dis_relation_avg']
-                        aster_hr_accuracy_sum += metrics_dict['aster_hr_accuracy']
-                        aster_hr_lev_dis_relation_avg_sum += metrics_dict['aster_hr_lev_dis_relation_avg']
+                        if epoch % self.cfg.AsterValInterval == 0 and epoch != 0:
+                            aster_sr_accuracy_sum += metrics_dict['aster_sr_accuracy']
+                            aster_sr_lev_dis_relation_avg_sum += metrics_dict['aster_sr_lev_dis_relation_avg']
+                            aster_lr_accuracy_sum += metrics_dict['aster_lr_accuracy']
+                            aster_lr_lev_dis_relation_avg_sum += metrics_dict['aster_lr_lev_dis_relation_avg']
+                            aster_hr_accuracy_sum += metrics_dict['aster_hr_accuracy']
+                            aster_hr_lev_dis_relation_avg_sum += metrics_dict['aster_hr_lev_dis_relation_avg']
 
-                        crnn_sr_accuracy_sum += metrics_dict['crnn_sr_accuracy']
-                        crnn_sr_lev_dis_relation_avg_sum += metrics_dict['crnn_sr_lev_dis_relation_avg']
-                        crnn_lr_accuracy_sum += metrics_dict['crnn_lr_accuracy']
-                        crnn_lr_lev_dis_relation_avg_sum += metrics_dict['crnn_lr_lev_dis_relation_avg']
-                        crnn_hr_accuracy_sum += metrics_dict['crnn_hr_accuracy']
-                        crnn_hr_lev_dis_relation_avg_sum += metrics_dict['crnn_hr_lev_dis_relation_avg']
+                        if epoch % self.cfg.CrnnValInterval == 0 and epoch != 0:
+                            crnn_sr_accuracy_sum += metrics_dict['crnn_sr_accuracy']
+                            crnn_sr_lev_dis_relation_avg_sum += metrics_dict['crnn_sr_lev_dis_relation_avg']
+                            crnn_lr_accuracy_sum += metrics_dict['crnn_lr_accuracy']
+                            crnn_lr_lev_dis_relation_avg_sum += metrics_dict['crnn_lr_lev_dis_relation_avg']
+                            crnn_hr_accuracy_sum += metrics_dict['crnn_hr_accuracy']
+                            crnn_hr_lev_dis_relation_avg_sum += metrics_dict['crnn_hr_lev_dis_relation_avg']
 
-                        moran_sr_accuracy_sum += metrics_dict['moran_sr_accuracy']
-                        moran_sr_lev_dis_relation_avg_sum += metrics_dict['moran_sr_lev_dis_relation_avg']
-                        moran_lr_accuracy_sum += metrics_dict['moran_lr_accuracy']
-                        moran_lr_lev_dis_relation_avg_sum += metrics_dict['moran_lr_lev_dis_relation_avg']
-                        moran_hr_accuracy_sum += metrics_dict['moran_hr_accuracy']
-                        moran_hr_lev_dis_relation_avg_sum += metrics_dict['moran_hr_lev_dis_relation_avg']
+                        if epoch % self.cfg.MoranValInterval == 0 and epoch != 0:
+                            moran_sr_accuracy_sum += metrics_dict['moran_sr_accuracy']
+                            moran_sr_lev_dis_relation_avg_sum += metrics_dict['moran_sr_lev_dis_relation_avg']
+                            moran_lr_accuracy_sum += metrics_dict['moran_lr_accuracy']
+                            moran_lr_lev_dis_relation_avg_sum += metrics_dict['moran_lr_lev_dis_relation_avg']
+                            moran_hr_accuracy_sum += metrics_dict['moran_hr_accuracy']
+                            moran_hr_lev_dis_relation_avg_sum += metrics_dict['moran_hr_lev_dis_relation_avg']
 
                         ctc_sr_accuracy_sum += metrics_dict['ctc_sr_accuracy']
                         ctc_sr_lev_dis_relation_avg_sum += metrics_dict['ctc_sr_lev_dis_relation_avg']
@@ -459,26 +465,29 @@ class TextSR(base.TextBase):
                 self.writer.add_scalar(f'other_avg/psnr_avg', psnr_avg_sum / cnt, epoch)
                 self.writer.add_scalar(f'other_avg/ssim_avg', ssim_avg_sum / cnt, epoch)
                 
-                self.writer.add_scalar(f'accuracy_avg/aster_sr_accuracy', aster_sr_accuracy_sum / cnt * 100, epoch)
-                self.writer.add_scalar(f'other_avg/aster_sr_lev_dis_relation_avg', aster_sr_lev_dis_relation_avg_sum / cnt, epoch)
-                self.writer.add_scalar(f'accuracy_avg/aster_lr_accuracy', aster_lr_accuracy_sum / cnt * 100, epoch)
-                self.writer.add_scalar(f'other_avg/aster_lr_lev_dis_relation_avg', aster_lr_lev_dis_relation_avg_sum / cnt, epoch)
-                self.writer.add_scalar(f'accuracy_avg/aster_hr_accuracy', aster_hr_accuracy_sum / cnt * 100, epoch)
-                self.writer.add_scalar(f'other_avg/aster_hr_lev_dis_relation_avg', aster_hr_lev_dis_relation_avg_sum / cnt, epoch)
+                if epoch % self.cfg.AsterValInterval == 0 and epoch != 0:
+                    self.writer.add_scalar(f'accuracy_avg/aster_sr_accuracy', aster_sr_accuracy_sum / cnt * 100, epoch)
+                    self.writer.add_scalar(f'other_avg/aster_sr_lev_dis_relation_avg', aster_sr_lev_dis_relation_avg_sum / cnt, epoch)
+                    self.writer.add_scalar(f'accuracy_avg/aster_lr_accuracy', aster_lr_accuracy_sum / cnt * 100, epoch)
+                    self.writer.add_scalar(f'other_avg/aster_lr_lev_dis_relation_avg', aster_lr_lev_dis_relation_avg_sum / cnt, epoch)
+                    self.writer.add_scalar(f'accuracy_avg/aster_hr_accuracy', aster_hr_accuracy_sum / cnt * 100, epoch)
+                    self.writer.add_scalar(f'other_avg/aster_hr_lev_dis_relation_avg', aster_hr_lev_dis_relation_avg_sum / cnt, epoch)
 
-                self.writer.add_scalar(f'accuracy_avg/crnn_sr_accuracy', crnn_sr_accuracy_sum / cnt * 100, epoch)
-                self.writer.add_scalar(f'other_avg/crnn_sr_lev_dis_relation_avg', crnn_sr_lev_dis_relation_avg_sum / cnt, epoch)
-                self.writer.add_scalar(f'accuracy_avg/crnn_lr_accuracy', crnn_lr_accuracy_sum / cnt * 100, epoch)
-                self.writer.add_scalar(f'other_avg/crnn_lr_lev_dis_relation_avg', crnn_lr_lev_dis_relation_avg_sum / cnt, epoch)
-                self.writer.add_scalar(f'accuracy_avg/crnn_hr_accuracy', crnn_hr_accuracy_sum / cnt * 100, epoch)
-                self.writer.add_scalar(f'other_avg/crnn_hr_lev_dis_relation_avg', crnn_hr_lev_dis_relation_avg_sum / cnt, epoch)
+                if epoch % self.cfg.CrnnValInterval == 0 and epoch != 0:
+                    self.writer.add_scalar(f'accuracy_avg/crnn_sr_accuracy', crnn_sr_accuracy_sum / cnt * 100, epoch)
+                    self.writer.add_scalar(f'other_avg/crnn_sr_lev_dis_relation_avg', crnn_sr_lev_dis_relation_avg_sum / cnt, epoch)
+                    self.writer.add_scalar(f'accuracy_avg/crnn_lr_accuracy', crnn_lr_accuracy_sum / cnt * 100, epoch)
+                    self.writer.add_scalar(f'other_avg/crnn_lr_lev_dis_relation_avg', crnn_lr_lev_dis_relation_avg_sum / cnt, epoch)
+                    self.writer.add_scalar(f'accuracy_avg/crnn_hr_accuracy', crnn_hr_accuracy_sum / cnt * 100, epoch)
+                    self.writer.add_scalar(f'other_avg/crnn_hr_lev_dis_relation_avg', crnn_hr_lev_dis_relation_avg_sum / cnt, epoch)
                 
-                self.writer.add_scalar(f'accuracy_avg/moran_sr_accuracy', moran_sr_accuracy_sum / cnt * 100, epoch)
-                self.writer.add_scalar(f'other_avg/moran_sr_lev_dis_relation_avg', moran_sr_lev_dis_relation_avg_sum / cnt, epoch)
-                self.writer.add_scalar(f'accuracy_avg/moran_lr_accuracy', moran_lr_accuracy_sum / cnt * 100, epoch)
-                self.writer.add_scalar(f'other_avg/moran_lr_lev_dis_relation_avg', moran_lr_lev_dis_relation_avg_sum / cnt, epoch)
-                self.writer.add_scalar(f'accuracy_avg/moran_hr_accuracy', moran_hr_accuracy_sum / cnt * 100, epoch)
-                self.writer.add_scalar(f'other_avg/moran_hr_lev_dis_relation_avg', moran_hr_lev_dis_relation_avg_sum / cnt, epoch)
+                if epoch % self.cfg.MoranValInterval == 0 and epoch != 0:
+                    self.writer.add_scalar(f'accuracy_avg/moran_sr_accuracy', moran_sr_accuracy_sum / cnt * 100, epoch)
+                    self.writer.add_scalar(f'other_avg/moran_sr_lev_dis_relation_avg', moran_sr_lev_dis_relation_avg_sum / cnt, epoch)
+                    self.writer.add_scalar(f'accuracy_avg/moran_lr_accuracy', moran_lr_accuracy_sum / cnt * 100, epoch)
+                    self.writer.add_scalar(f'other_avg/moran_lr_lev_dis_relation_avg', moran_lr_lev_dis_relation_avg_sum / cnt, epoch)
+                    self.writer.add_scalar(f'accuracy_avg/moran_hr_accuracy', moran_hr_accuracy_sum / cnt * 100, epoch)
+                    self.writer.add_scalar(f'other_avg/moran_hr_lev_dis_relation_avg', moran_hr_lev_dis_relation_avg_sum / cnt, epoch)
  
             if self.cfg.enable_rec:
                 self.writer.add_scalar(f'accuracy_avg/ctc_sr_accuracy', ctc_sr_accuracy_sum / cnt * 100, epoch)
@@ -553,10 +562,6 @@ class TextSR(base.TextBase):
         return current_row[n]
 
 
-    # def calculate_aster_pred_par(self, label_strs, aster, aster_info, bundle):
-    #     images, aster_lev_dis_list, aster_lev_dis_relation_list = bundle
-        # return self.calculate_aster_pred(label_strs, aster, aster_info, images, aster_lev_dis_list, aster_lev_dis_relation_list)
-
     @staticmethod
     def calculate_acc_lev_dis(cfg, pred_str_sr, label_strs, lev_dis_list, lev_dis_relation_list):
         cnt = 0
@@ -605,22 +610,22 @@ class TextSR(base.TextBase):
         sim_preds = converter_moran.decode(preds.data, moran_input[1].data)
         pred_str_sr = [pred.split('$')[0] for pred in sim_preds]
 
-        cnt = 0
-        n_correct = 0
-        pred_text = 'target -> moran_pred  \n'
-        for pred, target in zip(pred_str_sr, label_strs):
-            if cfg.letters == 'lower':
-                target = target.lower()
-            elif cfg.letters == 'upper':
-                target = target.upper()
+        # cnt = 0
+        # n_correct = 0
+        # pred_text = 'target -> moran_pred  \n'
+        # for pred, target in zip(pred_str_sr, label_strs):
+        #     if cfg.letters == 'lower':
+        #         target = target.lower()
+        #     elif cfg.letters == 'upper':
+        #         target = target.upper()
                 
-            pred_text += target+' -> '+pred+"  \n"
-            lev_dis = TextSR.levenshtein_distance(target, pred)
-            moran_lev_dis_list.append(lev_dis)
-            moran_lev_dis_relation_list.append(lev_dis / len(target) if len(target) > 0 else lev_dis)
-            if pred == target:
-                n_correct += 1
-            cnt += 1        
+        #     pred_text += target+' -> '+pred+"  \n"
+        #     lev_dis = TextSR.levenshtein_distance(target, pred)
+        #     moran_lev_dis_list.append(lev_dis)
+        #     moran_lev_dis_relation_list.append(lev_dis / len(target) if len(target) > 0 else lev_dis)
+        #     if pred == target:
+        #         n_correct += 1
+        #     cnt += 1        
         
         return TextSR.calculate_acc_lev_dis(cfg, pred_str_sr, label_strs, moran_lev_dis_list, moran_lev_dis_relation_list), pred_str_sr
 
@@ -809,50 +814,56 @@ class TextSR(base.TextBase):
             global hard_test_times
 
             model.eval()
-            crnn.eval()
-            aster.eval()
-            moran.eval()
+            if epoch % self.cfg.CrnnValInterval == 0 and epoch != 0:
+                crnn.eval()
+            if epoch % self.cfg.AsterValInterval == 0 and epoch != 0:
+                aster.eval()
+            if epoch % self.cfg.MoranValInterval == 0 and epoch != 0:
+                moran.eval()
 
             # LOSS
             loss_sum = 0
             mse_loss_sum = 0
             ctc_loss_sum = 0
 
-            # ASTER
+            if epoch % self.cfg.AsterValInterval == 0 and epoch != 0:
+                # ASTER
+                
+                aster_n_correct_sr_sum = 0
+                aster_sr_lev_dis_list = []
+                aster_sr_lev_dis_relation_list = []
+                aster_n_correct_lr_sum = 0
+                aster_lr_lev_dis_list = []
+                aster_lr_lev_dis_relation_list = []
+                aster_n_correct_hr_sum = 0
+                aster_hr_lev_dis_list = []
+                aster_hr_lev_dis_relation_list = []
             
-            aster_n_correct_sr_sum = 0
-            aster_sr_lev_dis_list = []
-            aster_sr_lev_dis_relation_list = []
-            aster_n_correct_lr_sum = 0
-            aster_lr_lev_dis_list = []
-            aster_lr_lev_dis_relation_list = []
-            aster_n_correct_hr_sum = 0
-            aster_hr_lev_dis_list = []
-            aster_hr_lev_dis_relation_list = []
-            
-            # CRNN
+            if epoch % self.cfg.CrnnValInterval == 0 and epoch != 0:
+                # CRNN
 
-            crnn_n_correct_sr_sum = 0
-            crnn_sr_lev_dis_list = []
-            crnn_sr_lev_dis_relation_list = []
-            crnn_n_correct_lr_sum = 0
-            crnn_lr_lev_dis_list = []
-            crnn_lr_lev_dis_relation_list = []
-            crnn_n_correct_hr_sum = 0
-            crnn_hr_lev_dis_list = []
-            crnn_hr_lev_dis_relation_list = []
+                crnn_n_correct_sr_sum = 0
+                crnn_sr_lev_dis_list = []
+                crnn_sr_lev_dis_relation_list = []
+                crnn_n_correct_lr_sum = 0
+                crnn_lr_lev_dis_list = []
+                crnn_lr_lev_dis_relation_list = []
+                crnn_n_correct_hr_sum = 0
+                crnn_hr_lev_dis_list = []
+                crnn_hr_lev_dis_relation_list = []
 
-            # MORAN
+            if epoch % self.cfg.MoranValInterval == 0 and epoch != 0:
+                # MORAN
 
-            moran_n_correct_sr_sum = 0
-            moran_sr_lev_dis_list = []
-            moran_sr_lev_dis_relation_list = []
-            moran_n_correct_lr_sum = 0
-            moran_lr_lev_dis_list = []
-            moran_lr_lev_dis_relation_list = []
-            moran_n_correct_hr_sum = 0
-            moran_hr_lev_dis_list = []
-            moran_hr_lev_dis_relation_list = []
+                moran_n_correct_sr_sum = 0
+                moran_sr_lev_dis_list = []
+                moran_sr_lev_dis_relation_list = []
+                moran_n_correct_lr_sum = 0
+                moran_lr_lev_dis_list = []
+                moran_lr_lev_dis_relation_list = []
+                moran_n_correct_hr_sum = 0
+                moran_hr_lev_dis_list = []
+                moran_hr_lev_dis_relation_list = []
 
             # CTC
             
@@ -929,8 +940,19 @@ class TextSR(base.TextBase):
                 # Точность и дистанция Левенштейна
                 if self.cfg.enable_sr or self.cfg.train_after_sr or (not self.cfg.enable_rec and self.cfg.recognizer == 'transformer'):
 
+                    aster_pred_lr = 'NONE'
+                    aster_pred_sr = 'NONE'
+                    aster_pred_hr = 'NONE'
                     
-                    if epoch % self.cfg.AsterValInterval:
+                    crnn_pred_lr = 'NONE'
+                    crnn_pred_sr = 'NONE'
+                    crnn_pred_hr = 'NONE'
+
+                    moran_pred_lr = 'NONE'
+                    moran_pred_sr = 'NONE'
+                    moran_pred_hr = 'NONE'
+                    
+                    if epoch % self.cfg.AsterValInterval == 0 and epoch != 0:
                         pbar.set_description("calc ASTER")
                         # ASTER
                         with Pool(3) as p:
@@ -944,6 +966,10 @@ class TextSR(base.TextBase):
                         (aster_n_correct_sr, aster_cnt_sr, aster_sr_lev_dis_list, aster_sr_lev_dis_relation_list, aster_sr_pred_text), aster_predict_result_sr = result[0]
                         (aster_n_correct_lr, aster_cnt_lr, aster_lr_lev_dis_list, aster_lr_lev_dis_relation_list, aster_lr_pred_text), aster_predict_result_lr = result[1]
                         (aster_n_correct_hr, aster_cnt_hr, aster_hr_lev_dis_list, aster_hr_lev_dis_relation_list, aster_hr_pred_text), aster_predict_result_hr = result[2]
+                        
+                        aster_n_correct_sr_sum += aster_n_correct_sr
+                        aster_n_correct_lr_sum += aster_n_correct_lr
+                        aster_n_correct_hr_sum += aster_n_correct_hr
                         
                         # # SR
                         # result = self.calculate_aster_pred(images_sr, aster_sr_lev_dis_list, aster_sr_lev_dis_relation_list, self.cfg, self.device, label_strs, aster, aster_info)
@@ -960,43 +986,45 @@ class TextSR(base.TextBase):
                         # (aster_n_correct_hr, aster_cnt_hr, aster_hr_lev_dis_list, aster_hr_lev_dis_relation_list, aster_hr_pred_text), aster_predict_result_hr = result
                         # aster_n_correct_hr_sum += aster_n_correct_hr
 
-                    pbar.set_description("calc CRNN")
-                    # CRNN
-                    
-                    with Pool(3) as p:
+                    if epoch % self.cfg.CrnnValInterval == 0 and epoch != 0:
+                        pbar.set_description("calc CRNN")
+                        # CRNN
+                        
+                        with Pool(3) as p:
 
-                        f_calculate = partial(TextSR.calculate_crnn_pred, cfg=self.cfg, label_strs=label_strs, crnn=crnn)
-                        input = ((images_sr, crnn_sr_lev_dis_list, crnn_sr_lev_dis_relation_list),
-                                 (images_lr, crnn_lr_lev_dis_list, crnn_lr_lev_dis_relation_list),
-                                 (images_hr, crnn_hr_lev_dis_list, crnn_hr_lev_dis_relation_list))
-                        result = list(p.starmap(f_calculate, input))
-                    
-                    (crnn_n_correct_sr, crnn_cnt_sr, crnn_sr_lev_dis_list, crnn_sr_lev_dis_relation_list, crnn_sr_pred_text), crnn_predict_result_sr = result[0]
-                    (crnn_n_correct_lr, crnn_cnt_lr, crnn_lr_lev_dis_list, crnn_lr_lev_dis_relation_list, crnn_lr_pred_text), crnn_predict_result_lr = result[1]
-                    (crnn_n_correct_hr, crnn_cnt_hr, crnn_hr_lev_dis_list, crnn_hr_lev_dis_relation_list, crnn_hr_pred_text), crnn_predict_result_hr = result[2]
+                            f_calculate = partial(TextSR.calculate_crnn_pred, cfg=self.cfg, label_strs=label_strs, crnn=crnn)
+                            input = ((images_sr, crnn_sr_lev_dis_list, crnn_sr_lev_dis_relation_list),
+                                    (images_lr, crnn_lr_lev_dis_list, crnn_lr_lev_dis_relation_list),
+                                    (images_hr, crnn_hr_lev_dis_list, crnn_hr_lev_dis_relation_list))
+                            result = list(p.starmap(f_calculate, input))
+                        
+                        (crnn_n_correct_sr, crnn_cnt_sr, crnn_sr_lev_dis_list, crnn_sr_lev_dis_relation_list, crnn_sr_pred_text), crnn_predict_result_sr = result[0]
+                        (crnn_n_correct_lr, crnn_cnt_lr, crnn_lr_lev_dis_list, crnn_lr_lev_dis_relation_list, crnn_lr_pred_text), crnn_predict_result_lr = result[1]
+                        (crnn_n_correct_hr, crnn_cnt_hr, crnn_hr_lev_dis_list, crnn_hr_lev_dis_relation_list, crnn_hr_pred_text), crnn_predict_result_hr = result[2]
 
-                    crnn_n_correct_sr_sum += crnn_n_correct_sr
-                    crnn_n_correct_lr_sum += crnn_n_correct_lr
-                    crnn_n_correct_hr_sum += crnn_n_correct_hr
+                        crnn_n_correct_sr_sum += crnn_n_correct_sr
+                        crnn_n_correct_lr_sum += crnn_n_correct_lr
+                        crnn_n_correct_hr_sum += crnn_n_correct_hr
 
-                    pbar.set_description("calc MORAN")
-                    # MORAN
-                    
-                    with Pool(3) as p:
+                    if epoch % self.cfg.MoranValInterval == 0 and epoch != 0:
+                        pbar.set_description("calc MORAN")
+                        # MORAN
+                        
+                        with Pool(3) as p:
 
-                        f_calculate = partial(TextSR.calculate_moran_pred, cfg=self.cfg, label_strs=label_strs, moran=moran, converter_moran=self.converter_moran)
-                        input = ((images_sr, moran_sr_lev_dis_list, moran_sr_lev_dis_relation_list),
-                                 (images_lr, moran_lr_lev_dis_list, moran_lr_lev_dis_relation_list),
-                                 (images_hr, moran_hr_lev_dis_list, moran_hr_lev_dis_relation_list))
-                        result = list(p.starmap(f_calculate, input))
-                    
-                    (moran_n_correct_sr, moran_cnt_sr, moran_sr_lev_dis_list, moran_sr_lev_dis_relation_list, moran_sr_pred_text), moran_predict_result_sr = result[0]
-                    (moran_n_correct_lr, moran_cnt_lr, moran_lr_lev_dis_list, moran_lr_lev_dis_relation_list, moran_lr_pred_text), moran_predict_result_lr = result[1]
-                    (moran_n_correct_hr, moran_cnt_hr, moran_hr_lev_dis_list, moran_hr_lev_dis_relation_list, moran_hr_pred_text), moran_predict_result_hr = result[2]
+                            f_calculate = partial(TextSR.calculate_moran_pred, cfg=self.cfg, label_strs=label_strs, moran=moran, converter_moran=self.converter_moran)
+                            input = ((images_sr, moran_sr_lev_dis_list, moran_sr_lev_dis_relation_list),
+                                    (images_lr, moran_lr_lev_dis_list, moran_lr_lev_dis_relation_list),
+                                    (images_hr, moran_hr_lev_dis_list, moran_hr_lev_dis_relation_list))
+                            result = list(p.starmap(f_calculate, input))
+                        
+                        (moran_n_correct_sr, moran_cnt_sr, moran_sr_lev_dis_list, moran_sr_lev_dis_relation_list, moran_sr_pred_text), moran_predict_result_sr = result[0]
+                        (moran_n_correct_lr, moran_cnt_lr, moran_lr_lev_dis_list, moran_lr_lev_dis_relation_list, moran_lr_pred_text), moran_predict_result_lr = result[1]
+                        (moran_n_correct_hr, moran_cnt_hr, moran_hr_lev_dis_list, moran_hr_lev_dis_relation_list, moran_hr_pred_text), moran_predict_result_hr = result[2]
 
-                    moran_n_correct_sr_sum += moran_n_correct_sr
-                    moran_n_correct_lr_sum += moran_n_correct_lr
-                    moran_n_correct_hr_sum += moran_n_correct_hr
+                        moran_n_correct_sr_sum += moran_n_correct_sr
+                        moran_n_correct_lr_sum += moran_n_correct_lr
+                        moran_n_correct_hr_sum += moran_n_correct_hr
 
                 else:
                     aster_predict_result_lr = None
@@ -1005,12 +1033,14 @@ class TextSR(base.TextBase):
                     aster_pred_sr = 'NONE'
                     aster_predict_result_hr = None
                     aster_pred_hr = 'NONE'
+                    
                     crnn_predict_result_lr = None
                     crnn_pred_lr = 'NONE'
                     crnn_predict_result_sr = None
                     crnn_pred_sr = 'NONE'
                     crnn_predict_result_hr = None
                     crnn_pred_hr = 'NONE'
+                    
                     moran_predict_result_lr = None
                     moran_pred_lr = 'NONE'
                     moran_predict_result_sr = None
@@ -1050,37 +1080,40 @@ class TextSR(base.TextBase):
 
                         ground_truth = label_strs[index].replace('"', '<quot>')
 
-                        # ASTER
+                        if epoch % self.cfg.AsterValInterval == 0 and epoch != 0:
+                            # ASTER
 
-                        aster_pred_sr = aster_predict_result_sr[index].replace('"', '<quot>')
-                        aster_pred_lr = aster_predict_result_lr[index].replace('"', '<quot>')
-                        aster_pred_hr = aster_predict_result_hr[index].replace('"', '<quot>')
+                            aster_pred_sr = aster_predict_result_sr[index].replace('"', '<quot>')
+                            aster_pred_lr = aster_predict_result_lr[index].replace('"', '<quot>')
+                            aster_pred_hr = aster_predict_result_hr[index].replace('"', '<quot>')
 
-                        self.writer.add_text(f'ASTER_SR_pred/{epoch}_epoch/{dataset_name}', aster_sr_pred_text)
-                        self.writer.add_text(f'ASTER_LR_pred/{epoch}_epoch/{dataset_name}', aster_lr_pred_text)
-                        self.writer.add_text(f'ASTER_HR_pred/{epoch}_epoch/{dataset_name}', aster_hr_pred_text)
+                            self.writer.add_text(f'ASTER_SR_pred/{epoch}_epoch/{dataset_name}', aster_sr_pred_text)
+                            self.writer.add_text(f'ASTER_LR_pred/{epoch}_epoch/{dataset_name}', aster_lr_pred_text)
+                            self.writer.add_text(f'ASTER_HR_pred/{epoch}_epoch/{dataset_name}', aster_hr_pred_text)
 
-                        # CRNN
+                        if epoch % self.cfg.CrnnValInterval == 0 and epoch != 0:
+                            # CRNN
 
-                        crnn_pred_sr = crnn_predict_result_sr[index].replace('"', '<quot>')
-                        crnn_pred_lr = crnn_predict_result_lr[index].replace('"', '<quot>')
-                        crnn_pred_hr = crnn_predict_result_hr[index].replace('"', '<quot>')
+                            crnn_pred_sr = crnn_predict_result_sr[index].replace('"', '<quot>')
+                            crnn_pred_lr = crnn_predict_result_lr[index].replace('"', '<quot>')
+                            crnn_pred_hr = crnn_predict_result_hr[index].replace('"', '<quot>')
 
-                        self.writer.add_text(f'CRNN_SR_pred/{epoch}_epoch/{dataset_name}', crnn_sr_pred_text)
-                        self.writer.add_text(f'CRNN_LR_pred/{epoch}_epoch/{dataset_name}', crnn_lr_pred_text)
-                        self.writer.add_text(f'CRNN_HR_pred/{epoch}_epoch/{dataset_name}', crnn_hr_pred_text)
+                            self.writer.add_text(f'CRNN_SR_pred/{epoch}_epoch/{dataset_name}', crnn_sr_pred_text)
+                            self.writer.add_text(f'CRNN_LR_pred/{epoch}_epoch/{dataset_name}', crnn_lr_pred_text)
+                            self.writer.add_text(f'CRNN_HR_pred/{epoch}_epoch/{dataset_name}', crnn_hr_pred_text)
 
-                        # MORAN
+                        if epoch % self.cfg.MoranValInterval == 0 and epoch != 0:
+                            # MORAN
 
-                        moran_pred_sr = moran_predict_result_sr[index].replace('"', '<quot>')
-                        moran_pred_lr = moran_predict_result_lr[index].replace('"', '<quot>')
-                        moran_pred_hr = moran_predict_result_hr[index].replace('"', '<quot>')
+                            moran_pred_sr = moran_predict_result_sr[index].replace('"', '<quot>')
+                            moran_pred_lr = moran_predict_result_lr[index].replace('"', '<quot>')
+                            moran_pred_hr = moran_predict_result_hr[index].replace('"', '<quot>')
 
-                        self.writer.add_text(f'MORAN_SR_pred/{epoch}_epoch/{dataset_name}', moran_sr_pred_text)
-                        self.writer.add_text(f'MORAN_LR_pred/{epoch}_epoch/{dataset_name}', moran_lr_pred_text)
-                        self.writer.add_text(f'MORAN_HR_pred/{epoch}_epoch/{dataset_name}', moran_hr_pred_text)
+                            self.writer.add_text(f'MORAN_SR_pred/{epoch}_epoch/{dataset_name}', moran_sr_pred_text)
+                            self.writer.add_text(f'MORAN_LR_pred/{epoch}_epoch/{dataset_name}', moran_lr_pred_text)
+                            self.writer.add_text(f'MORAN_HR_pred/{epoch}_epoch/{dataset_name}', moran_hr_pred_text)
                         
-                        metric_dict['images_and_labels'].append((images_hr.detach().cpu(), images_sr.detach().cpu(), label_strs, crnn_predict_result_sr, crnn_predict_result_lr, ctc_decode_strings))
+                        metric_dict['images_and_labels'].append((images_hr.detach().cpu(), images_sr.detach().cpu(), label_strs, ctc_decode_strings))
 
                         show_lr = images_lr[index, ...].clone().detach()
                         show_hr = images_hr[index, ...].clone().detach()
@@ -1089,8 +1122,10 @@ class TextSR(base.TextBase):
                         un = UnNormalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 
                         print('save display images')
-                        self.writer.add_image(f'{dataset_name}/{epoch}_epoch_{index}_index_lr_image_eval_crnn_pred:{crnn_pred_lr}', torch.clamp(un(show_lr), min=0, max=1), iters)
-                        self.writer.add_image(f'{dataset_name}/{epoch}_epoch_{index}_index_sr_image_eval_crnn_pred:{crnn_pred_sr}_ctc_pred:{ctc_pred}', torch.clamp(un(show_sr), min=0, max=1), iters)
+                        pred_lr = aster_pred_lr if aster_pred_lr else (crnn_pred_lr if crnn_pred_lr else (moran_pred_lr if moran_pred_lr else 'NONE'))
+                        pred_sr = aster_pred_sr if aster_pred_sr else (crnn_pred_sr if crnn_pred_sr else (moran_pred_sr if moran_pred_sr else 'NONE'))
+                        self.writer.add_image(f'{dataset_name}/{epoch}_epoch_{index}_index_lr_image_eval_pred:{pred_lr}', torch.clamp(un(show_lr), min=0, max=1), iters)
+                        self.writer.add_image(f'{dataset_name}/{epoch}_epoch_{index}_index_sr_image_eval_pred:{pred_sr}_ctc_pred:{ctc_pred}', torch.clamp(un(show_sr), min=0, max=1), iters)
                         self.writer.add_image(f'{dataset_name}/{epoch}_epoch_{index}_index_hr_image_eval_groundTruth:{ground_truth}', torch.clamp(un(show_hr), min=0, max=1), iters)
                     
                 cnt_images += val_batch_size
@@ -1129,53 +1164,56 @@ class TextSR(base.TextBase):
 
                 print(f'PSNR {float(psnr_avg):.2f} | SSIM {float(ssim_avg):.4f}\t')
 
-                # ASTER
+                if epoch % self.cfg.AsterValInterval == 0 and epoch != 0:
+                    # ASTER
 
-                metric_dict = self.calc_print_external_recognizer(name='aster',
-                    n_correct_sr_sum=aster_n_correct_sr_sum,
-                    sr_lev_dis_relation_list=aster_sr_lev_dis_relation_list,
-                    cnt_images=cnt_images,
-                    metric_dict=metric_dict,
-                    dataset_name=dataset_name,
-                    epoch=epoch,
-                    calc_lr=True,
-                    n_correct_lr_sum=aster_n_correct_lr_sum,
-                    lr_lev_dis_relation_list=aster_lr_lev_dis_relation_list,
-                    calc_hr=True,
-                    n_correct_hr_sum=aster_n_correct_hr_sum,
-                    hr_lev_dis_relation_list=aster_hr_lev_dis_relation_list)
+                    metric_dict = self.calc_print_external_recognizer(name='aster',
+                        n_correct_sr_sum=aster_n_correct_sr_sum,
+                        sr_lev_dis_relation_list=aster_sr_lev_dis_relation_list,
+                        cnt_images=cnt_images,
+                        metric_dict=metric_dict,
+                        dataset_name=dataset_name,
+                        epoch=epoch,
+                        calc_lr=True,
+                        n_correct_lr_sum=aster_n_correct_lr_sum,
+                        lr_lev_dis_relation_list=aster_lr_lev_dis_relation_list,
+                        calc_hr=True,
+                        n_correct_hr_sum=aster_n_correct_hr_sum,
+                        hr_lev_dis_relation_list=aster_hr_lev_dis_relation_list)
 
-                # CRNN
-            
-                metric_dict = self.calc_print_external_recognizer(name='crnn',
-                    n_correct_sr_sum=crnn_n_correct_sr_sum,
-                    sr_lev_dis_relation_list=crnn_sr_lev_dis_relation_list,
-                    cnt_images=cnt_images,
-                    metric_dict=metric_dict,
-                    dataset_name=dataset_name,
-                    epoch=epoch,
-                    calc_lr=True,
-                    n_correct_lr_sum=crnn_n_correct_lr_sum,
-                    lr_lev_dis_relation_list=crnn_lr_lev_dis_relation_list,
-                    calc_hr=True,
-                    n_correct_hr_sum=crnn_n_correct_hr_sum,
-                    hr_lev_dis_relation_list=crnn_hr_lev_dis_relation_list)
+                if epoch % self.cfg.CrnnValInterval == 0 and epoch != 0:
+                    # CRNN
+                
+                    metric_dict = self.calc_print_external_recognizer(name='crnn',
+                        n_correct_sr_sum=crnn_n_correct_sr_sum,
+                        sr_lev_dis_relation_list=crnn_sr_lev_dis_relation_list,
+                        cnt_images=cnt_images,
+                        metric_dict=metric_dict,
+                        dataset_name=dataset_name,
+                        epoch=epoch,
+                        calc_lr=True,
+                        n_correct_lr_sum=crnn_n_correct_lr_sum,
+                        lr_lev_dis_relation_list=crnn_lr_lev_dis_relation_list,
+                        calc_hr=True,
+                        n_correct_hr_sum=crnn_n_correct_hr_sum,
+                        hr_lev_dis_relation_list=crnn_hr_lev_dis_relation_list)
 
-                # MORAN
-            
-                metric_dict = self.calc_print_external_recognizer(name='moran',
-                    n_correct_sr_sum=moran_n_correct_sr_sum,
-                    sr_lev_dis_relation_list=moran_sr_lev_dis_relation_list,
-                    cnt_images=cnt_images,
-                    metric_dict=metric_dict,
-                    dataset_name=dataset_name,
-                    epoch=epoch,
-                    calc_lr=True,
-                    n_correct_lr_sum=moran_n_correct_lr_sum,
-                    lr_lev_dis_relation_list=moran_lr_lev_dis_relation_list,
-                    calc_hr=True,
-                    n_correct_hr_sum=moran_n_correct_hr_sum,
-                    hr_lev_dis_relation_list=moran_hr_lev_dis_relation_list)
+                if epoch % self.cfg.MoranValInterval == 0 and epoch != 0:
+                    # MORAN
+                
+                    metric_dict = self.calc_print_external_recognizer(name='moran',
+                        n_correct_sr_sum=moran_n_correct_sr_sum,
+                        sr_lev_dis_relation_list=moran_sr_lev_dis_relation_list,
+                        cnt_images=cnt_images,
+                        metric_dict=metric_dict,
+                        dataset_name=dataset_name,
+                        epoch=epoch,
+                        calc_lr=True,
+                        n_correct_lr_sum=moran_n_correct_lr_sum,
+                        lr_lev_dis_relation_list=moran_lr_lev_dis_relation_list,
+                        calc_hr=True,
+                        n_correct_hr_sum=moran_n_correct_hr_sum,
+                        hr_lev_dis_relation_list=moran_hr_lev_dis_relation_list)
  
             # Если включена ветка распознавания
             if self.cfg.enable_rec:

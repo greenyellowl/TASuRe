@@ -110,11 +110,11 @@ class TextBase(object):
                                         ).load_dataset()
                     dataset_list.append(test_val_dataset) # создаётся объект класса loadDataset
 
-                    batch_size = cfg.batch_size_val
+                    batch_size = min(cfg.batch_size_val, len(test_val_dataset))
                     # batch_size = min(int(self.batch_size / 3), int(len(test_val_dataset) / 3))
                     test_val_loader = torch.utils.data.DataLoader(
                         test_val_dataset, batch_size=batch_size,
-                        shuffle=False, num_workers=int(cfg.workers),drop_last=True, pin_memory=True)
+                        shuffle=False, num_workers=int(cfg.workers),drop_last=False, pin_memory=True)
                     loader_list.append(test_val_loader)
 
             if len(cfg.test_val_textzoom_data_dir)>0:
@@ -129,11 +129,11 @@ class TextBase(object):
                                           ).load_dataset()
                     dataset_list.append(test_val_dataset) # создаётся объект класса loadDataset
 
-                    batch_size = cfg.batch_size_val
+                    batch_size = min(cfg.batch_size_val, len(test_val_dataset))
                     # batch_size = min(int(self.batch_size / 3), int(len(test_val_dataset) / 3))
                     test_val_loader = torch.utils.data.DataLoader(
                         test_val_dataset, batch_size=batch_size,
-                        shuffle=False, num_workers=int(cfg.workers),drop_last=True, pin_memory=True)
+                        shuffle=False, num_workers=int(cfg.workers),drop_last=False, pin_memory=True)
                     loader_list.append(test_val_loader)
         else:
             raise TypeError('check trainRoot')

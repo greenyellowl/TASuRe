@@ -19,18 +19,18 @@ class Wangji(nn.Module):
         if self.cfg.convNext_type == 'T':
             depths = [3, 3, 9]
             dims = [96, 192, 384]
-            finalConv_in_channels = 3
+            finalConv_in_channels = 3 if cfg.scale_factor == 2 else None
         elif self.cfg.convNext_type == 'S':
             depths = [3, 3, 27]
             dims = [96, 192, 384]
-            finalConv_in_channels = 3
+            finalConv_in_channels = 3 if cfg.scale_factor == 2 else None
         # elif self.cfg.convNext_type == 'B': # Не сработает, т.к. нужно, чтобы dims[2] делилось на 3.
         #     depths = [3, 3, 27]
         #     dims = [128, 256, 512]
         elif self.cfg.convNext_type == 'L':
             depths = [3, 3, 27]
             dims = [192, 384, 768]
-            finalConv_in_channels = 6
+            finalConv_in_channels = 6 if cfg.scale_factor == 2 else 3
         # elif self.cfg.convNext_type == 'XL': # Не сработает, т.к. нужно, чтобы dims[2] делилось на 3.
         #     depths = [3, 3, 27]
         #     dims = [256, 512, 1024]
@@ -79,13 +79,23 @@ class Wangji(nn.Module):
         if self.cfg.enable_sr or self.cfg.train_after_sr:
             #LongSkip
 
-            self.convLS0 = nn.Conv2d(in_channels = in_chans, out_channels = 32, kernel_size = 2, stride=[2,3], dilation=[1,3])
-            self.convLS1 = nn.Conv2d(in_channels = 32, out_channels = (dims[2] * scale_factor - dims[2]), kernel_size = [2,3], stride=[4,2], dilation=3)
+            if cfg.scale_factor == 2:
+                self.convLS0 = nn.Conv2d(in_channels = in_chans, out_channels = 32, kernel_size = 2, stride=[2,3], dilation=[1,3])
+                self.convLS1 = nn.Conv2d(in_channels = 32, out_channels = (dims[2] * scale_factor - dims[2]), kernel_size = [2,3], stride=[4,2], dilation=3)
+            elif cfg.scale_factor == 4:
+                self.convLS0 = nn.Conv2d(in_channels = in_chans, out_channels = 32, kernel_size = [4,2], stride=2, dilation=1)
+                self.convLS1 = nn.Conv2d(in_channels = 32, out_channels = (dims[2] * scale_factor - dims[2]), kernel_size = 3, stride=[2,3], dilation=[2,3])
+
 
             #Blue Branch
 
-            self.convBlue1 = nn.Conv2d(in_channels = dims[0], out_channels = dims[1], kernel_size = 2, padding=[0,1], stride=2, dilation=[1,3])
-            self.convBlue2 = nn.Conv2d(in_channels=dims[1], out_channels=dims[2], kernel_size=2, padding=[0, 1], stride=2, dilation=[1, 3])
+            if cfg.scale_factor == 2:
+                self.convBlue1 = nn.Conv2d(in_channels = dims[0], out_channels = dims[1], kernel_size = 2, padding=[0,1], stride=2, dilation=[1,3])
+                self.convBlue2 = nn.Conv2d(in_channels=dims[1], out_channels=dims[2], kernel_size=2, padding=[0, 1], stride=2, dilation=[1, 3])
+            if cfg.scale_factor == 4:
+                self.convBlue1 = nn.Conv2d(in_channels = dims[0], out_channels = dims[1], kernel_size = [3,2], stride=[1,2], dilation=[2,1])
+                self.convBlue2 = nn.Conv2d(in_channels=dims[1], out_channels=dims[2], kernel_size=[3,5], stride=1, dilation=1)
+            
 
             # Upsampler from HAN https://paperswithcode.com/paper/a-convnet-for-the-2020s
 
@@ -227,7 +237,7 @@ class Wangji(nn.Module):
 
 
         tag_scores = None
-        if self.cfg.enable_rec or not self.cfg.recognizer == 'transformer':
+        if self.cfg.enable_rec and not self.cfg.recognizer == 'transformer':
             if self.cfg.recognizer_input == 'convnext':
                 # block = eval("y_block"+str(self.cfg.recognizer_input_convnext))
                 block = y_block1 if self.cfg.recognizer_input_convnext == 1 else y_block2

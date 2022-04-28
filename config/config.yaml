@@ -45,19 +45,19 @@ test_val_textzoom_data_dir: [
 
 # COMMON
 
-width: 64
-height: 32
-batch_size: 355
-batch_size_val: 70
+width: 128
+height: 64
+batch_size: 1700
+batch_size_val: 600
 epochs: 1000
 lr: 0.001
-scale_factor: 2
+scale_factor: 4
 workers: 24
 fp16: True
 
 # resume: '/home/helen/code/TextSR/checkpoint/log_2022-04-25_02_21_43.606800 - 39/model_best.pth'
-resume: '/home/helen/ssd/checkpoint/log_2022-04-28_03_27_08.635572/checkpoint.pth'
-# resume: ''
+# resume: '/home/helen/ssd/checkpoint/log_2022-04-28_03_27_08.635572/checkpoint.pth'
+resume: ''
 
 # LOSS
 
@@ -77,7 +77,7 @@ recognizer_input_convnext: 1 # 1, 2
 
 enable_sr: True
 enable_ConvNext: True
-enable_rec: True
+enable_rec: False
 
 freeze_sr: False
 freeze_rec: False
@@ -116,7 +116,9 @@ confuse_path: './pretrained/confuse.pkl'
 displayInterval: 10 #display loss
 # saveInterval: 3560000000
 valInterval: -1 #-1, val at the end of epoch
-AsterValInterval: 10
+AsterValInterval: 50
+CrnnValInterval: 50
+MoranValInterval: 50
 saveBestModel: True
 
 eval: True
