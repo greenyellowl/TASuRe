@@ -196,7 +196,7 @@ class TextBase(object):
                 print('loading pre-trained model from %s ' % self.resume)
                 if self.cfg.ngpu == 1:
                     checkpoint = torch.load(self.resume)
-                    model.load_state_dict(checkpoint['model'], strict=False)
+                    model.load_state_dict(checkpoint['model'] if 'model' in checkpoint else checkpoint['state_dict_G'], strict=False)
                     epoch = checkpoint['info']['epochs']
                     if 'optimizer' in checkpoint and checkpoint['optimizer'] is not None:
                         optimizer = self.optimizer_init(model)
@@ -219,7 +219,7 @@ class TextBase(object):
 
     def optimizer_init(self, model):
         cfg = self.cfg
-        optimizer = optim.Adam(model.parameters(), lr=cfg.lr, betas=(cfg.beta1, 0.999), amsgrad=True)
+        optimizer = optim.Adam(model.parameters(), lr=cfg.lr, betas=(cfg.beta1, 0.999), amsgrad=True, weight_decay=self.cfg.adam_weight_decay)
         # optimizer = optim.SGD(model.parameters(), lr=cfg.lr, momentum=0)
         return optimizer
 

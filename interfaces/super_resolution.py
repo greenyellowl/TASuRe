@@ -62,12 +62,16 @@ class TextSR(base.TextBase):
                          LOSS:  \n
                          lambda_mse: {cfg.lambda_mse}  \n
                          lambda_ctc: {cfg.lambda_ctc}  \n
+                         clip_grad_norm_: {cfg.clip_grad_norm_}  \n
+                         adam_weight_decay: {cfg.adam_weight_decay}  \n
                            \n
                          MODEL STRUCTURE:  \n
                          convNext_type: {cfg.convNext_type}  \n
                          acc_best_model: {cfg.acc_best_model}  \n
                          rec_best_model_save: {cfg.rec_best_model_save}  \n
                          recognizer: {cfg.recognizer}  \n
+                         num_lstm_layers: {cfg.num_lstm_layers}  \n
+                         lstm_bidirectional: {cfg.lstm_bidirectional}  \n
                          recognizer_input: {cfg.recognizer_input}  \n
                          recognizer_input_convnext: {cfg.recognizer_input_convnext}  \n
                            \n
@@ -238,13 +242,24 @@ class TextSR(base.TextBase):
                     scaler.unscale_(optimizer)
                 else:
                     loss.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 0.25)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.clip_grad_norm_)
                 if self.cfg.fp16:
                     scaler.step(optimizer)
                     scaler.update()
                 else:
                     optimizer.step()
 
+                total_norm = 0
+                # i = 0
+                for p in model.parameters():
+                    # i += 1
+                    if p.requires_grad:
+                        param_norm = p.grad.data.norm(2)
+                        total_norm += param_norm.item() ** 2
+                total_norm = total_norm ** (1. / 2)
+                self.writer.add_scalar('loss/grad_norm', total_norm, iters)
+                # print(i)
+                # quit()
                 end_time = time.time() * 1000
                 duration = end_time - start_time
                 spend_time += 'Loss и Optimizer '+str(duration)+'  \n'
@@ -313,6 +328,10 @@ class TextSR(base.TextBase):
 
                 # ВАЛИДАЦИЯ
 
+                spend_time_val = ''
+                torch.cuda.empty_cache()
+                metrics_dict_datasets = {}
+                metrics_dict = {}
                 start_time = time.time() * 1000
                 if j == len(train_loader)-1 and self.cfg.eval:
                     print('\n')
@@ -360,7 +379,7 @@ class TextSR(base.TextBase):
 
                         print('evaluation %s' % dataset_name)
 
-                        metrics_dict = self.eval(model, val_loader, image_crit, iters, aster, crnn, moran, aster_info, dataset_name, iters, epoch)
+                        metrics_dict, spend_time_val = self.eval(model, val_loader, image_crit, iters, aster, crnn, moran, aster_info, dataset_name, iters, epoch)
                         metrics_dict_datasets[dataset_name] = metrics_dict
 
                         # Сохраняем значения отслеживаемой метки из каждого датасета
@@ -412,6 +431,7 @@ class TextSR(base.TextBase):
                 end_time = time.time() * 1000
                 duration = end_time - start_time
                 spend_time += 'ВАЛИДАЦИЯ '+str(duration)+'  \n'
+                spend_time += spend_time_val +'  \n'
      
                 # Сохранение чек-поинта
                 start_time = time.time() * 1000 
@@ -809,9 +829,12 @@ class TextSR(base.TextBase):
     # валидация одного датасета
     def eval(self, model, val_loader, image_crit, index, aster, crnn, moran, aster_info, dataset_name, iters, epoch):
         with torch.no_grad():
+            spend_time = ''
             global easy_test_times
             global medium_test_times
             global hard_test_times
+
+            start_time = time.time() * 1000
 
             model.eval()
             if epoch % self.cfg.CrnnValInterval == 0 and epoch != 0:
@@ -821,6 +844,10 @@ class TextSR(base.TextBase):
             if epoch % self.cfg.MoranValInterval == 0 and epoch != 0:
                 moran.eval()
 
+            end_time = time.time() * 1000
+            duration = end_time - start_time
+            spend_time += '\t model.eval() '+str(duration)+'  \n'
+            
             # LOSS
             loss_sum = 0
             mse_loss_sum = 0
@@ -905,6 +932,7 @@ class TextSR(base.TextBase):
             pbar = tqdm.tqdm((enumerate(val_loader)), leave = False, desc='evaluation', total=len(val_loader))
             for i, data in pbar:
                 info_string = ''
+                start_time = time.time() * 1000
                 # Получение данных из датасетов
 
                 images_hr, images_lr, label_strs, _ = data
@@ -914,11 +942,23 @@ class TextSR(base.TextBase):
                 images_lr = images_lr.to(self.device)
                 images_hr = images_hr.to(self.device)
 
+                end_time = time.time() * 1000
+                duration = end_time - start_time
+                spend_time += '\t Получение данных из датасетов '+str(duration)+'  \n'
+                
                 # Прогон модели
+
+                start_time = time.time() * 1000
 
                 images_sr, tag_scores = model(images_lr)
 
+                end_time = time.time() * 1000
+                duration = end_time - start_time
+                spend_time += '\t Прогон модели '+str(duration)+'  \n'
+
                 # Лоссы
+
+                start_time = time.time() * 1000
 
                 if self.cfg.recognizer == 'transformer':
                     loss, mse_loss, attention_loss, recognition_loss, word_decoder_result = image_crit(images_sr, images_hr, label_strs)
@@ -930,15 +970,28 @@ class TextSR(base.TextBase):
                 else:
                     raise exceptions.WrongRecognizer
 
+                end_time = time.time() * 1000
+                duration = end_time - start_time
+                spend_time += '\t Лоссы '+str(duration)+'  \n'
+
                 # Если включена ветка СР или модель предобучена на СР, считаем степень зашумлённости и похожести изображений
-                if self.cfg.enable_sr or self.cfg.train_after_sr: 
-                    # Вычисление PSNR и SSIM (Средние по батчу)  
+                if self.cfg.enable_sr or self.cfg.train_after_sr:
+
+                    start_time = time.time() * 1000
+
+                    # Вычисление PSNR и SSIM (Средние по батчу)
                                       
                     psnr_batches.append(self.cal_psnr(images_sr, images_hr))
                     ssim_batches.append(self.cal_ssim(images_sr, images_hr))
 
+                    end_time = time.time() * 1000
+                    duration = end_time - start_time
+                    spend_time += '\t Вычисление PSNR и SSIM (Средние по батчу) '+str(duration)+'  \n'
+
                 # Точность и дистанция Левенштейна
                 if self.cfg.enable_sr or self.cfg.train_after_sr or (not self.cfg.enable_rec and self.cfg.recognizer == 'transformer'):
+
+                    start_time1 = time.time() * 1000
 
                     aster_pred_lr = 'NONE'
                     aster_pred_sr = 'NONE'
@@ -952,7 +1005,10 @@ class TextSR(base.TextBase):
                     moran_pred_sr = 'NONE'
                     moran_pred_hr = 'NONE'
                     
+                    torch.cuda.empty_cache()
                     if epoch % self.cfg.AsterValInterval == 0 and epoch != 0:
+                        start_time = time.time() * 1000
+                        
                         pbar.set_description("calc ASTER")
                         # ASTER
                         with Pool(3) as p:
@@ -970,6 +1026,12 @@ class TextSR(base.TextBase):
                         aster_n_correct_sr_sum += aster_n_correct_sr
                         aster_n_correct_lr_sum += aster_n_correct_lr
                         aster_n_correct_hr_sum += aster_n_correct_hr
+
+                        torch.cuda.empty_cache()
+
+                        end_time = time.time() * 1000
+                        duration = end_time - start_time
+                        spend_time += '\t \t ASTER '+str(duration)+'  \n'
                         
                         # # SR
                         # result = self.calculate_aster_pred(images_sr, aster_sr_lev_dis_list, aster_sr_lev_dis_relation_list, self.cfg, self.device, label_strs, aster, aster_info)
@@ -987,6 +1049,7 @@ class TextSR(base.TextBase):
                         # aster_n_correct_hr_sum += aster_n_correct_hr
 
                     if epoch % self.cfg.CrnnValInterval == 0 and epoch != 0:
+                        start_time = time.time() * 1000
                         pbar.set_description("calc CRNN")
                         # CRNN
                         
@@ -1006,7 +1069,14 @@ class TextSR(base.TextBase):
                         crnn_n_correct_lr_sum += crnn_n_correct_lr
                         crnn_n_correct_hr_sum += crnn_n_correct_hr
 
+                        torch.cuda.empty_cache()
+
+                        end_time = time.time() * 1000
+                        duration = end_time - start_time
+                        spend_time += '\t \t CRNN '+str(duration)+'  \n'
+
                     if epoch % self.cfg.MoranValInterval == 0 and epoch != 0:
+                        start_time = time.time() * 1000
                         pbar.set_description("calc MORAN")
                         # MORAN
                         
@@ -1025,6 +1095,12 @@ class TextSR(base.TextBase):
                         moran_n_correct_sr_sum += moran_n_correct_sr
                         moran_n_correct_lr_sum += moran_n_correct_lr
                         moran_n_correct_hr_sum += moran_n_correct_hr
+
+                        torch.cuda.empty_cache()
+
+                        end_time = time.time() * 1000
+                        duration = end_time - start_time
+                        spend_time += '\t \t MORAN '+str(duration)+'  \n'
 
                 else:
                     aster_predict_result_lr = None
@@ -1048,7 +1124,12 @@ class TextSR(base.TextBase):
                     moran_predict_result_hr = None
                     moran_pred_hr = 'NONE'
 
+                end_time = time.time() * 1000
+                duration = end_time - start_time1
+                spend_time += '\t Точность и дистанция Левенштейна '+str(duration)+'  \n'
+
                 # Если включена ветка распознавания, считаем точность распознавания СТС
+                start_time = time.time() * 1000
                 if self.cfg.enable_rec:
                     pbar.set_description("calc CTC")
                     # CTC
@@ -1057,10 +1138,15 @@ class TextSR(base.TextBase):
                 else:
                     ctc_pred = 'NONE'
                     ctc_decode_strings = None
+
+                end_time = time.time() * 1000
+                duration = end_time - start_time1
+                spend_time += '\t Точность распознавания СТС '+str(duration)+'  \n'
                 
 
                 # Вывод изображений и предсказаний в TensorBoard
                 if i == len(val_loader) - 1:
+                    start_time = time.time() * 1000
                     index = random.randint(0, images_lr.shape[0]-1)
 
                     # Если включена ветка распознавания
@@ -1127,13 +1213,18 @@ class TextSR(base.TextBase):
                         self.writer.add_image(f'{dataset_name}/{epoch}_epoch_{index}_index_lr_image_eval_pred:{pred_lr}', torch.clamp(un(show_lr), min=0, max=1), iters)
                         self.writer.add_image(f'{dataset_name}/{epoch}_epoch_{index}_index_sr_image_eval_pred:{pred_sr}_ctc_pred:{ctc_pred}', torch.clamp(un(show_sr), min=0, max=1), iters)
                         self.writer.add_image(f'{dataset_name}/{epoch}_epoch_{index}_index_hr_image_eval_groundTruth:{ground_truth}', torch.clamp(un(show_hr), min=0, max=1), iters)
-                    
+
+                    end_time = time.time() * 1000
+                    duration = end_time - start_time1
+                    spend_time += '\t Вывод изображений и предсказаний в TensorBoard '+str(duration)+'  \n'
                 cnt_images += val_batch_size
 
                 torch.cuda.empty_cache()
 
             # Конец валидации
 
+            start_time = time.time() * 1000
+            
             loss_avg = loss_sum / len(val_loader)
             self.multi_writer.add_scalar(f'validation/loss/{dataset_name}', loss_avg, iters)
             mse_loss_avg = mse_loss_sum / len(val_loader)
@@ -1226,7 +1317,11 @@ class TextSR(base.TextBase):
                     dataset_name=dataset_name,
                     epoch=epoch)
 
-            return metric_dict
+            end_time = time.time() * 1000
+            duration = end_time - start_time1
+            spend_time += '\t Хвост валидации '+str(duration)+'  \n'
+            
+            return metric_dict, spend_time
 
 
     def test(self):
