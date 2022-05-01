@@ -45,32 +45,41 @@ test_val_textzoom_data_dir: [
 
 # COMMON
 
-width: 64
-height: 32
-batch_size: 300
+width: 128
+height: 64
+batch_size: 256
+batch_size_val: 70
 epochs: 1000
-scale_factor: 2
 lr: 0.001
+scale_factor: 2
 workers: 24
-fp16: True
+fp16: False
 
 # resume: '/home/helen/code/TextSR/checkpoint/log_2022-04-25_02_21_43.606800 - 39/model_best.pth'
-# resume: '/home/helen/ssd/checkpoint/log_2022-04-25_21_53_18.130641/checkpoint.pth'
+# resume: '/home/helen/code/TextSR/checkpoint/log_2022-04-20_12_08_44.120870 - 28/checkpoint.pth'
 resume: ''
 
 # LOSS
 
 lambda_mse: 10
 lambda_ctc: 1
+clip_grad_norm_: 0.25
+adam_weight_decay: 0
 
 # MODEL STRUCTURE
 
-convNext_type: 'L' # T, S, L
+convNext_type: 'S' # T, S, L
+convnext_layernorm: True
+rec_best_model_save: 'ssim' # ssim, lev_dis, acc По какой метрике сохранять лучшую модель
+# REC
 acc_best_model: 'ctc' # ctc, crnn. По какому распознавателю сохранять лучшую модель
-rec_best_model_save: 'lev_dis' # lev_dis, acc По какой метрике сохранять лучшую модель распознавания
 recognizer: 'lstm' # transformer или lstm.
-recognizer_input: 'att' # att, convnext. Вход распознавателя
+num_lstm_layers: 1
+lstm_bidirectional: False
+recognizer_input: 'convnext' # att, convnext. Вход распознавателя
 recognizer_input_convnext: 1 # 1, 2
+#SR
+transpose_upsample: False
 
 # BRANCHES
 
@@ -98,7 +107,7 @@ max_len: 32
 # SCHEDULER
 
 scheduler_plateau_patience: 2
-scheduler_plateau_cooldown: 6
+scheduler_plateau_cooldown: 4
 # scheduler_warmup_epoch = scheduler_plateau_cooldown
 scheduler_plateau_factor: 0.8
 min_lr: 1e-20
@@ -115,6 +124,9 @@ confuse_path: './pretrained/confuse.pkl'
 displayInterval: 10 #display loss
 # saveInterval: 3560000000
 valInterval: -1 #-1, val at the end of epoch
+AsterValInterval: 50
+CrnnValInterval: 50
+MoranValInterval: 50
 saveBestModel: True
 
 eval: True
