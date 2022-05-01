@@ -102,12 +102,12 @@ class Wangji(nn.Module):
                     self.convBlue3 = nn.Conv2d(in_channels=dims[2]*2, out_channels=dims[2]*scale_factor, kernel_size=1)
             
             if cfg.transpose_upsample:
-                self.convUpsample1 = nn.ConvTranspose2d(in_channels=dims[2]*2,out_channels=dims[2] // 2, kernel_size=[2,5], padding=0, output_padding=0, stride=[2,1], dilation=1)
-                self.convUpsample2 = nn.ConvTranspose2d(in_channels=dims[2] // 2, out_channels=dims[2] // 4, kernel_size=[5,2], padding=0, output_padding=0, stride=[1,2], dilation=1)
-                self.convUpsample3 = nn.ConvTranspose2d(in_channels=dims[2] // 4, out_channels=dims[2] // 8, kernel_size=[9,2], padding=0, output_padding=0, stride=[1,2], dilation=1)
-                self.convUpsample4 = nn.ConvTranspose2d(in_channels=dims[2] // 8, out_channels=dims[2] // 16, kernel_size=[17,33], padding=0, output_padding=0, stride=1, dilation=1)
-                self.convUpsample5 = nn.ConvTranspose2d(in_channels=dims[2] // 16, out_channels=dims[2] // 32, kernel_size=[33,65], padding=0, output_padding=0, stride=1, dilation=1)
-                finalConv_in_channels = dims[2] // 32
+                self.convUpsample1 = nn.ConvTranspose2d(in_channels=dims[2]*2,out_channels=dims[1], kernel_size=[2,5], padding=0, output_padding=0, stride=[2,1], dilation=1)
+                self.convUpsample2 = nn.ConvTranspose2d(in_channels=dims[1], out_channels=dims[0], kernel_size=[5,2], padding=0, output_padding=0, stride=[1,2], dilation=1)
+                self.convUpsample3 = nn.ConvTranspose2d(in_channels=dims[0], out_channels=dims[1], kernel_size=[9,2], padding=0, output_padding=0, stride=[1,2], dilation=1)
+                self.convUpsample4 = nn.ConvTranspose2d(in_channels=dims[1], out_channels=dims[1], kernel_size=[17,33], padding=0, output_padding=0, stride=1, dilation=1)
+                self.convUpsample5 = nn.ConvTranspose2d(in_channels=dims[1], out_channels=dims[0], kernel_size=[33,65], padding=0, output_padding=0, stride=1, dilation=1)
+                finalConv_in_channels = dims[0]
             else:
                 self.upsample = sub_pixel(scale_factor)
             

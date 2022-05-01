@@ -242,7 +242,10 @@ class TextSR(base.TextBase):
                     scaler.unscale_(optimizer)
                 else:
                     loss.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.clip_grad_norm_)
+                if epoch <= cfg.cnt_first_epochs:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.clip_grad_norm_first_epochs)
+                else:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.clip_grad_norm_)
                 if self.cfg.fp16:
                     scaler.step(optimizer)
                     scaler.update()
@@ -1068,6 +1071,21 @@ class TextSR(base.TextBase):
                         crnn_n_correct_sr_sum += crnn_n_correct_sr
                         crnn_n_correct_lr_sum += crnn_n_correct_lr
                         crnn_n_correct_hr_sum += crnn_n_correct_hr
+                        
+                        # # SR
+                        # result = self.calculate_crnn_pred(images_sr, crnn_sr_lev_dis_list, crnn_sr_lev_dis_relation_list, self.cfg, self.device, label_strs, crnn, crnn_info)
+                        # (crnn_n_correct_sr, crnn_cnt_sr, crnn_sr_lev_dis_list, crnn_sr_lev_dis_relation_list, crnn_sr_pred_text), crnn_predict_result_sr = result
+                        # crnn_n_correct_sr_sum += crnn_n_correct_sr
+                        
+                        # # LR
+                        # result = self.calculate_crnn_pred(images_lr, crnn_lr_lev_dis_list, crnn_lr_lev_dis_relation_list, self.cfg, self.device, label_strs, crnn, crnn_info)
+                        # (crnn_n_correct_lr, crnn_cnt_lr, crnn_lr_lev_dis_list, crnn_lr_lev_dis_relation_list, crnn_lr_pred_text), crnn_predict_result_lr = result
+                        # crnn_n_correct_lr_sum += crnn_n_correct_lr
+                        
+                        # # HR
+                        # result = self.calculate_crnn_pred(images_hr, crnn_hr_lev_dis_list, crnn_hr_lev_dis_relation_list, self.cfg, self.device, label_strs, crnn, crnn_info)
+                        # (crnn_n_correct_hr, crnn_cnt_hr, crnn_hr_lev_dis_list, crnn_hr_lev_dis_relation_list, crnn_hr_pred_text), crnn_predict_result_hr = result
+                        # crnn_n_correct_hr_sum += crnn_n_correct_hr
 
                         torch.cuda.empty_cache()
 
@@ -1095,6 +1113,21 @@ class TextSR(base.TextBase):
                         moran_n_correct_sr_sum += moran_n_correct_sr
                         moran_n_correct_lr_sum += moran_n_correct_lr
                         moran_n_correct_hr_sum += moran_n_correct_hr
+                        
+                        # # SR
+                        # result = self.calculate_moran_pred(images_sr, moran_sr_lev_dis_list, moran_sr_lev_dis_relation_list, self.cfg, self.device, label_strs, moran, moran_info)
+                        # (moran_n_correct_sr, moran_cnt_sr, moran_sr_lev_dis_list, moran_sr_lev_dis_relation_list, moran_sr_pred_text), moran_predict_result_sr = result
+                        # moran_n_correct_sr_sum += moran_n_correct_sr
+                        
+                        # # LR
+                        # result = self.calculate_moran_pred(images_lr, moran_lr_lev_dis_list, moran_lr_lev_dis_relation_list, self.cfg, self.device, label_strs, moran, moran_info)
+                        # (moran_n_correct_lr, moran_cnt_lr, moran_lr_lev_dis_list, moran_lr_lev_dis_relation_list, moran_lr_pred_text), moran_predict_result_lr = result
+                        # moran_n_correct_lr_sum += moran_n_correct_lr
+                        
+                        # # HR
+                        # result = self.calculate_moran_pred(images_hr, moran_hr_lev_dis_list, moran_hr_lev_dis_relation_list, self.cfg, self.device, label_strs, moran, moran_info)
+                        # (moran_n_correct_hr, moran_cnt_hr, moran_hr_lev_dis_list, moran_hr_lev_dis_relation_list, moran_hr_pred_text), moran_predict_result_hr = result
+                        # moran_n_correct_hr_sum += moran_n_correct_hr
 
                         torch.cuda.empty_cache()
 

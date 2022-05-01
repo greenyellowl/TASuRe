@@ -50,7 +50,7 @@ class MyDataset():
             transform_lr = A.Compose([
                 # A.augmentations.geometric.resize.Resize(self.cfg.height / self.cfg.scale_factor, self.cfg.width / self.cfg.scale_factor),
                 A.ImageCompression(p=0.5, quality_lower=50, quality_upper=100),
-                A.Blur(p=0.5),
+                A.Blur(p=0.5, blur_limit=[6,10]),
                 A.augmentations.geometric.resize.Resize(height_lr, width_lr),
                 A.augmentations.transforms.Normalize(self.cfg.norm_mean, self.cfg.norm_std),
                 A.pytorch.transforms.ToTensorV2(),
@@ -59,7 +59,7 @@ class MyDataset():
             if self.cfg.enable_lr_albumentations:
                 transform_lr = A.Compose([
                     A.ImageCompression(p=1, quality_lower=50, quality_upper=100),
-                    A.Blur(p=1),
+                    A.Blur(p=1, blur_limit=[6,7]),
                     A.RandomBrightnessContrast(p=1),
                     A.augmentations.geometric.resize.Resize(height_lr, width_lr),
                     A.augmentations.transforms.Normalize(self.cfg.norm_mean, self.cfg.norm_std),
@@ -68,7 +68,7 @@ class MyDataset():
             else:
                 transform_lr = A.Compose([
                     # A.ImageCompression(p=1, quality_lower=50, quality_upper=100),
-                    # A.Blur(p=1),
+                    # A.Blur(p=1, blur_limit=[6,10]),
                     # A.RandomBrightnessContrast(p=1),
                     A.augmentations.geometric.resize.Resize(height_lr, width_lr),
                     A.augmentations.transforms.Normalize(self.cfg.norm_mean, self.cfg.norm_std),

@@ -65,7 +65,9 @@ resume: ''
 
 lambda_mse: 10
 lambda_ctc: 1
-clip_grad_norm_: 0.25
+clip_grad_norm_first_epochs: 200
+cnt_first_epochs: 6
+clip_grad_norm_: 7
 adam_weight_decay: 0
 
 # MODEL STRUCTURE
