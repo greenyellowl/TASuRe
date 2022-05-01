@@ -230,7 +230,6 @@ class Wangji(nn.Module):
             del y_blue_conv1
             
             y_blue_conv2 = self.convBlue2(y_summ1)
-            del y_summ1
             y_summ2 = y_blue_conv2 + y_block2
             del y_blue_conv2
 
@@ -240,8 +239,10 @@ class Wangji(nn.Module):
 
             if self.cfg.transpose_upsample:
                 y_up_conv1 = self.convUpsample1(y_concat1)
-                y_up_conv2 = self.convUpsample2(y_up_conv1)
-                y_up_conv3 = self.convUpsample3(y_up_conv2)
+                y_summ_t1 = y_up_conv1 + y_summ1
+                y_up_conv2 = self.convUpsample2(y_summ_t1)
+                y_summ_t2 = y_up_conv2 + y_summ2
+                y_up_conv3 = self.convUpsample3(y_summ_t2)
                 y_up_conv4 = self.convUpsample4(y_up_conv3)
                 y_to_final_conv = self.convUpsample5(y_up_conv4)
             else:
