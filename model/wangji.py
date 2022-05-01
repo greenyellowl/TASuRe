@@ -31,9 +31,10 @@ class Wangji(nn.Module):
             depths = [3, 3, 27]
             dims = [192, 384, 768]
             finalConv_in_channels = 6 if cfg.scale_factor == 2 else 3
-        # elif self.cfg.convNext_type == 'XL': # Не сработает, т.к. нужно, чтобы dims[2] делилось на 3.
-        #     depths = [3, 3, 27]
-        #     dims = [256, 512, 1024]
+        elif self.cfg.convNext_type == 'XL': # Не сработает, т.к. нужно, чтобы dims[2] делилось на 3.
+            depths = [3, 3, 27]
+            dims = [256, 512, 1024]
+            finalConv_in_channels = 4
         else:
             depths = [3, 3, 9]
             dims = [96, 192, 384]  
@@ -47,12 +48,12 @@ class Wangji(nn.Module):
             self.convnext_downsample_layers = nn.ModuleList()  # stem and 2 intermediate downsampling conv layers
             stem = nn.Sequential(
                 nn.Conv2d(in_chans, dims[0], kernel_size=2, stride=2),
-                LayerNorm(dims[0], eps=1e-6, data_format="channels_first")
+                LayerNorm(dims[0], eps=1e-6, data_format="channels_first") if cfg.convnext_layernorm else nn.BatchNorm2d(dims[0])
             )
             self.convnext_downsample_layers.append(stem)
             for i in range(2):
                 downsample_layer = nn.Sequential(
-                    LayerNorm(dims[i], eps=1e-6, data_format="channels_first"),
+                    LayerNorm(dims[i], eps=1e-6, data_format="channels_first") if cfg.convnext_layernorm else nn.BatchNorm2d(dims[i]),
                     nn.Conv2d(dims[i], dims[i + 1], kernel_size=2, stride=2),
                 )
                 self.convnext_downsample_layers.append(downsample_layer)
@@ -83,8 +84,8 @@ class Wangji(nn.Module):
                 self.convLS0 = nn.Conv2d(in_channels = in_chans, out_channels = 32, kernel_size = 2, stride=[2,3], dilation=[1,3])
                 self.convLS1 = nn.Conv2d(in_channels = 32, out_channels = (dims[2] * scale_factor - dims[2]), kernel_size = [2,3], stride=[4,2], dilation=3)
             elif cfg.scale_factor == 4:
-                self.convLS0 = nn.Conv2d(in_channels = in_chans, out_channels = 32, kernel_size = [4,2], stride=2, dilation=1)
-                self.convLS1 = nn.Conv2d(in_channels = 32, out_channels = (dims[2] * scale_factor - dims[2]), kernel_size = 3, stride=[2,3], dilation=[2,3])
+                self.convLS0 = nn.Conv2d(in_channels = in_chans, out_channels = 32, kernel_size = 2, stride=2, dilation=[3,1])
+                self.convLS1 = nn.Conv2d(in_channels = 32, out_channels = dims[2], kernel_size = 3, stride=[2,3], dilation=[2,3])
 
 
             #Blue Branch
@@ -92,22 +93,23 @@ class Wangji(nn.Module):
             if cfg.scale_factor == 2:
                 self.convBlue1 = nn.Conv2d(in_channels = dims[0], out_channels = dims[1], kernel_size = 2, padding=[0,1], stride=2, dilation=[1,3])
                 self.convBlue2 = nn.Conv2d(in_channels=dims[1], out_channels=dims[2], kernel_size=2, padding=[0, 1], stride=2, dilation=[1, 3])
+                # if not cfg.transpose_upsample:
+                #     self.convBlue3 = nn.Conv2d(in_channels=dims[2]*2, out_channels=dims[2]*scale_factor, kernel_size=1)
             if cfg.scale_factor == 4:
                 self.convBlue1 = nn.Conv2d(in_channels = dims[0], out_channels = dims[1], kernel_size = [3,2], stride=[1,2], dilation=[2,1])
                 self.convBlue2 = nn.Conv2d(in_channels=dims[1], out_channels=dims[2], kernel_size=[3,5], stride=1, dilation=1)
+                if not cfg.transpose_upsample:
+                    self.convBlue3 = nn.Conv2d(in_channels=dims[2]*2, out_channels=dims[2]*scale_factor, kernel_size=1)
             
-
-            # Upsampler from HAN https://paperswithcode.com/paper/a-convnet-for-the-2020s
-
-            # conv_HAN = default_conv_form_HAN
-            # n_feats = dims[2] * scale_factor
-            # n_colors = 3
-            # ks = 3
-            # upsample = [Upsampler(conv_HAN, scale_factor, n_feats, act=False),
-            #             conv_HAN(n_feats, n_colors, ks)]
-            #
-            # self.upsample = nn.Sequential(*upsample)
-            self.upsample = sub_pixel(scale_factor)
+            if cfg.transpose_upsample:
+                self.convUpsample1 = nn.ConvTranspose2d(in_channels=dims[2]*2,out_channels=dims[2] // 2, kernel_size=[2,5], padding=0, output_padding=0, stride=[2,1], dilation=1)
+                self.convUpsample2 = nn.ConvTranspose2d(in_channels=dims[2] // 2, out_channels=dims[2] // 4, kernel_size=[5,2], padding=0, output_padding=0, stride=[1,2], dilation=1)
+                self.convUpsample3 = nn.ConvTranspose2d(in_channels=dims[2] // 4, out_channels=dims[2] // 8, kernel_size=[9,2], padding=0, output_padding=0, stride=[1,2], dilation=1)
+                self.convUpsample4 = nn.ConvTranspose2d(in_channels=dims[2] // 8, out_channels=dims[2] // 16, kernel_size=[17,33], padding=0, output_padding=0, stride=1, dilation=1)
+                self.convUpsample5 = nn.ConvTranspose2d(in_channels=dims[2] // 16, out_channels=dims[2] // 32, kernel_size=[33,65], padding=0, output_padding=0, stride=1, dilation=1)
+                finalConv_in_channels = dims[2] // 32
+            else:
+                self.upsample = sub_pixel(scale_factor)
             
             self.finalConv = nn.Conv2d(in_channels=finalConv_in_channels, out_channels=3, kernel_size=3, padding=1, bias=True)
 
@@ -128,7 +130,7 @@ class Wangji(nn.Module):
                 self.finalConv.bias.requires_grad = False
         
         
-        if self.cfg.enable_rec or not self.cfg.recognizer == 'transformer':
+        if self.cfg.enable_rec and not self.cfg.recognizer == 'transformer':
             #PreProcessing Branch
 
             # self.convPreProc00 = nn.Conv2d(in_channels = dims[0], out_channels = 32, kernel_size = 3, padding=1, stride=2)
@@ -156,9 +158,9 @@ class Wangji(nn.Module):
                 input_size = (768 if self.cfg.convNext_type == 'T' or self.cfg.convNext_type == 'S' else 1536) if self.cfg.recognizer_input_convnext == 1 else dims[2]
                 # self.last_convNext_block = eval("y_block"+str(self.cfg.recognizer_input_convnext))
             hidden_size = input_size
-            num_layers = 2
+            num_layers = cfg.num_lstm_layers
             batch_first = True
-            bidirectional = False
+            bidirectional = cfg.lstm_bidirectional
             tagset_size  = self.cfg.FULL_VOCAB_SIZE
 
             if cfg.recognizer == 'lstm':
@@ -205,14 +207,17 @@ class Wangji(nn.Module):
 
             y_downsample0 = self.convnext_downsample_layers[0](x)
             y_block0 = self.convnext_blocks[0](y_downsample0)
+            del y_downsample0
 
             y_downsample1 = self.convnext_downsample_layers[1](y_block0)
             y_block1 = self.convnext_blocks[1](y_downsample1)
+            del y_downsample1
 
             if self.cfg.recognizer_input == 'att' or self.cfg.enable_sr or \
                 (self.cfg.recognizer_input == 'convnext' and self.cfg.recognizer_input_convnext == 2):
                 y_downsample2 = self.convnext_downsample_layers[2](y_block1)
                 y_block2 = self.convnext_blocks[2](y_downsample2)
+                del y_downsample2
         
         y_sr = None
         if self.cfg.enable_sr:
@@ -225,15 +230,25 @@ class Wangji(nn.Module):
             del y_blue_conv1
             
             y_blue_conv2 = self.convBlue2(y_summ1)
-            y_summ2 = y_blue_conv2 + y_block2
             del y_summ1
+            y_summ2 = y_blue_conv2 + y_block2
             del y_blue_conv2
 
             y_concat1 = torch.cat([y_summ2, y_green_2], 1)
             del y_green_2
+            del y_summ2
 
-            y_upsample = self.upsample(y_concat1)
-            y_sr = self.finalConv(y_upsample)
+            if self.cfg.transpose_upsample:
+                y_up_conv1 = self.convUpsample1(y_concat1)
+                y_up_conv2 = self.convUpsample2(y_up_conv1)
+                y_up_conv3 = self.convUpsample3(y_up_conv2)
+                y_up_conv4 = self.convUpsample4(y_up_conv3)
+                y_to_final_conv = self.convUpsample5(y_up_conv4)
+            else:
+                y_blue_conv3 = self.convBlue3(y_concat1) if self.cfg.scale_factor == 4 else y_concat1
+                y_to_final_conv = self.upsample(y_blue_conv3)
+            y_sr = self.finalConv(y_to_final_conv)
+            del y_concat1
 
 
         tag_scores = None
