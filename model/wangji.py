@@ -34,7 +34,7 @@ class Wangji(nn.Module):
         elif self.cfg.convNext_type == 'XL': # Не сработает, т.к. нужно, чтобы dims[2] делилось на 3.
             depths = [3, 3, 27]
             dims = [256, 512, 1024]
-            finalConv_in_channels = 4
+            finalConv_in_channels = 8
         else:
             depths = [3, 3, 9]
             dims = [96, 192, 384]  
@@ -76,6 +76,8 @@ class Wangji(nn.Module):
                 for param in self.convnext_blocks.parameters():
                     param.requires_grad = False
 
+        self.act = nn.GELU()
+        self.act_sigm = nn.Sigmoid()
         
         if self.cfg.enable_sr or self.cfg.train_after_sr:
             #LongSkip
@@ -222,14 +224,18 @@ class Wangji(nn.Module):
         y_sr = None
         if self.cfg.enable_sr:
             y_green_1 = self.convLS0(x)
+            y_green_1 = self.act(y_green_1)
             y_green_2 = self.convLS1(y_green_1)
+            y_green_2 = self.act(y_green_2)
             del y_green_1
 
             y_blue_conv1 = self.convBlue1(y_block0)
+            y_blue_conv1 = self.act(y_blue_conv1)
             y_summ1 = y_blue_conv1 + y_block1
             del y_blue_conv1
             
             y_blue_conv2 = self.convBlue2(y_summ1)
+            y_blue_conv2 = self.act(y_blue_conv2)
             y_summ2 = y_blue_conv2 + y_block2
             del y_blue_conv2
 
@@ -239,16 +245,31 @@ class Wangji(nn.Module):
 
             if self.cfg.transpose_upsample:
                 y_up_conv1 = self.convUpsample1(y_concat1)
+                y_up_conv1 = self.act(y_up_conv1)
                 y_summ_t1 = y_up_conv1 + y_summ1
                 y_up_conv2 = self.convUpsample2(y_summ_t1)
-                y_summ_t2 = y_up_conv2 + y_summ2
+                y_up_conv2 = self.act(y_up_conv2)
+                y_summ_t2 = y_up_conv2 + y_block0
                 y_up_conv3 = self.convUpsample3(y_summ_t2)
+                y_up_conv3 = self.act(y_up_conv3)
                 y_up_conv4 = self.convUpsample4(y_up_conv3)
+                y_up_conv4 = self.act(y_up_conv4)
                 y_to_final_conv = self.convUpsample5(y_up_conv4)
+                y_to_final_conv = self.act(y_to_final_conv)
             else:
                 y_blue_conv3 = self.convBlue3(y_concat1) if self.cfg.scale_factor == 4 else y_concat1
+                y_blue_conv3 = self.act(y_blue_conv3)
                 y_to_final_conv = self.upsample(y_blue_conv3)
             y_sr = self.finalConv(y_to_final_conv)
+            # print('before:',f'{y_to_final_conv.min().item():.2f}', '|',
+            #         f'{y_to_final_conv.max().item():.2f}', '|',
+            #         f'{torch.mean(y_to_final_conv).item():.2f}', '|',
+            #         f'{torch.std(y_to_final_conv).item():.2f}', '|',
+            #         '\nafter:',f'{y_sr.min().item():.2f}', '|',
+            #         f'{y_sr.max().item():.2f}', '|',
+            #         f'{torch.mean(y_sr).item():.2f}', '|',
+            #         f'{torch.std(y_sr).item():.2f}',)
+            y_sr = self.act_sigm(y_sr)
             del y_concat1
 
 
@@ -265,8 +286,11 @@ class Wangji(nn.Module):
                     y_flat[:,i] = rearrange(vector, 'b c h w -> b (c h w)')
             elif self.cfg.recognizer_input == 'att':
                 y_convPreProc0 = self.convPreProc0(y_block0)
+                y_convPreProc0 = self.act(y_convPreProc0)
                 y_convPreProc1 = self.convPreProc1(y_block1)
+                y_convPreProc1 = self.act(y_convPreProc1)
                 y_convPreProc2 = self.convPreProc2(y_block2)
+                y_convPreProc2 = self.act(y_convPreProc2)
 
                 y_concat2 = torch.stack([y_convPreProc0, y_convPreProc1, y_convPreProc2], 1)
 

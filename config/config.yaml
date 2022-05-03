@@ -49,30 +49,30 @@ enable_lr_albumentations: True
 
 width: 128
 height: 64
-batch_size: 256
+batch_size: 150
 batch_size_val: 70
 epochs: 1000
 lr: 0.001
-scale_factor: 2
+scale_factor: 4
 workers: 24
 fp16: False
 
 # resume: '/home/helen/code/TextSR/checkpoint/log_2022-04-25_02_21_43.606800 - 39/model_best.pth'
-# resume: '/home/helen/code/TextSR/checkpoint/log_2022-04-20_12_08_44.120870 - 28/checkpoint.pth'
+# resume: '/home/helen/code/TextSR/checkpoint/log_2022-05-02_12_49_52.696597 - 51/checkpoint.pth'
 resume: ''
 
 # LOSS
 
-lambda_mse: 10
+lambda_mse: 1
 lambda_ctc: 1
 clip_grad_norm_first_epochs: 200
 cnt_first_epochs: 6
-clip_grad_norm_: 7
+clip_grad_norm_: 200
 adam_weight_decay: 0
 
 # MODEL STRUCTURE
 
-convNext_type: 'S' # T, S, L
+convNext_type: 'XL' # T, S, L
 convnext_layernorm: True
 rec_best_model_save: 'ssim' # ssim, lev_dis, acc По какой метрике сохранять лучшую модель
 # REC
@@ -83,7 +83,7 @@ lstm_bidirectional: False
 recognizer_input: 'convnext' # att, convnext. Вход распознавателя
 recognizer_input_convnext: 1 # 1, 2
 #SR
-transpose_upsample: False
+transpose_upsample: True
 
 # BRANCHES
 

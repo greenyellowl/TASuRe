@@ -74,6 +74,7 @@ class TextSR(base.TextBase):
                          lstm_bidirectional: {cfg.lstm_bidirectional}  \n
                          recognizer_input: {cfg.recognizer_input}  \n
                          recognizer_input_convnext: {cfg.recognizer_input_convnext}  \n
+                         transpose_upsample: {cfg.transpose_upsample}  \n
                            \n
                          BRANCHES:  \n
                          enable_sr: {cfg.enable_sr}  \n
@@ -318,11 +319,11 @@ class TextSR(base.TextBase):
                     show_hr = images_hr[index, ...].clone().detach()
                     show_sr = images_sr[index, ...].clone().detach()
 
-                    un = UnNormalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+                    # un = UnNormalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 
-                    self.writer.add_image(f'first_batch/{dataset}/{epoch}_epoch_{index}_index_lr_image_first_batch', torch.clamp(un(show_lr), min=0, max=1), iters)
-                    self.writer.add_image(f'first_batch/{dataset}/{epoch}_epoch_{index}_index_sr_image_first_batch', torch.clamp(un(show_sr), min=0, max=1), iters)
-                    self.writer.add_image(f'first_batch/{dataset}/{epoch}_epoch_{index}_index_hr_image_first_batch', torch.clamp(un(show_hr), min=0, max=1), iters)
+                    self.writer.add_image(f'first_batch/{dataset}/{epoch}_epoch_{index}_index_lr_image_first_batch', torch.clamp(show_lr, min=0, max=1), iters)
+                    self.writer.add_image(f'first_batch/{dataset}/{epoch}_epoch_{index}_index_sr_image_first_batch', torch.clamp(show_sr, min=0, max=1), iters)
+                    self.writer.add_image(f'first_batch/{dataset}/{epoch}_epoch_{index}_index_hr_image_first_batch', torch.clamp(show_hr, min=0, max=1), iters)
                 
                 end_time = time.time() * 1000
                 duration = end_time - start_time
@@ -1238,14 +1239,14 @@ class TextSR(base.TextBase):
                         show_hr = images_hr[index, ...].clone().detach()
                         show_sr = images_sr[index, ...].clone().detach()                    
 
-                        un = UnNormalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+                        # un = UnNormalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 
                         print('save display images')
                         pred_lr = aster_pred_lr if aster_pred_lr else (crnn_pred_lr if crnn_pred_lr else (moran_pred_lr if moran_pred_lr else 'NONE'))
                         pred_sr = aster_pred_sr if aster_pred_sr else (crnn_pred_sr if crnn_pred_sr else (moran_pred_sr if moran_pred_sr else 'NONE'))
-                        self.writer.add_image(f'{dataset_name}/{epoch}_epoch_{index}_index_lr_image_eval_pred:{pred_lr}', torch.clamp(un(show_lr), min=0, max=1), iters)
-                        self.writer.add_image(f'{dataset_name}/{epoch}_epoch_{index}_index_sr_image_eval_pred:{pred_sr}_ctc_pred:{ctc_pred}', torch.clamp(un(show_sr), min=0, max=1), iters)
-                        self.writer.add_image(f'{dataset_name}/{epoch}_epoch_{index}_index_hr_image_eval_groundTruth:{ground_truth}', torch.clamp(un(show_hr), min=0, max=1), iters)
+                        self.writer.add_image(f'{dataset_name}/{epoch}_epoch_{index}_index_lr_image_eval_pred:{pred_lr}', torch.clamp(show_lr, min=0, max=1), iters)
+                        self.writer.add_image(f'{dataset_name}/{epoch}_epoch_{index}_index_sr_image_eval_pred:{pred_sr}_ctc_pred:{ctc_pred}', torch.clamp(show_sr, min=0, max=1), iters)
+                        self.writer.add_image(f'{dataset_name}/{epoch}_epoch_{index}_index_hr_image_eval_groundTruth:{ground_truth}', torch.clamp(show_hr, min=0, max=1), iters)
 
                     end_time = time.time() * 1000
                     duration = end_time - start_time1
