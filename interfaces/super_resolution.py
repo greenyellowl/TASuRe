@@ -112,6 +112,9 @@ class TextSR(base.TextBase):
         test_val_dataset_list, test_val_loader_list = self.get_test_val_data()
         model_dict = self.generator_init()
         model, image_crit = model_dict['model'], model_dict['crit']
+
+        num_params = util.get_num_params(model)
+        self.writer.add_text('model_num_params', num_params)
         
         del model_dict['model']
         del model_dict['crit']
@@ -124,9 +127,6 @@ class TextSR(base.TextBase):
         if optimizer is None:
             optimizer = self.optimizer_init(model)
 
-        aster, aster_info = self.Aster_init()
-        crnn, _ = self.CRNN_init()
-        moran = self.MORAN_init()
         scaler = GradScaler()
 
         # scheduler
@@ -383,6 +383,11 @@ class TextSR(base.TextBase):
 
                         print('evaluation %s' % dataset_name)
 
+                        aster = None
+                        aster_info = None
+                        crnn = None
+                        moran = None
+
                         metrics_dict, spend_time_val = self.eval(model, val_loader, image_crit, iters, aster, crnn, moran, aster_info, dataset_name, iters, epoch)
                         metrics_dict_datasets[dataset_name] = metrics_dict
 
@@ -625,7 +630,7 @@ class TextSR(base.TextBase):
         return TextSR.calculate_acc_lev_dis(cfg, crnn_predict_result, label_strs, crnn_lev_dis_list, crnn_lev_dis_relation_list), crnn_predict_result
     
     @staticmethod
-    def calculate_moran_pred(images, moran_lev_dis_list, moran_lev_dis_relation_list, label_strs, moran, converter_moran, cfg):
+    def calculate_moran_pred(images, moran_lev_dis_list, moran_lev_dis_relation_list, cfg, label_strs, moran, converter_moran):
         moran_input = TextSR.parse_moran_data(images[:, :3, :, :], converter_moran)
         moran_output = moran(moran_input[0], moran_input[1], moran_input[2], moran_input[3], test=True,
                                 debug=True)
@@ -833,6 +838,7 @@ class TextSR(base.TextBase):
     # валидация одного датасета
     def eval(self, model, val_loader, image_crit, index, aster, crnn, moran, aster_info, dataset_name, iters, epoch):
         with torch.no_grad():
+
             spend_time = ''
             global easy_test_times
             global medium_test_times
@@ -859,6 +865,8 @@ class TextSR(base.TextBase):
 
             if epoch % self.cfg.AsterValInterval == 0 and epoch != 0:
                 # ASTER
+
+                aster, aster_info = self.Aster_init()
                 
                 aster_n_correct_sr_sum = 0
                 aster_sr_lev_dis_list = []
@@ -873,6 +881,8 @@ class TextSR(base.TextBase):
             if epoch % self.cfg.CrnnValInterval == 0 and epoch != 0:
                 # CRNN
 
+                crnn, _ = self.CRNN_init()
+
                 crnn_n_correct_sr_sum = 0
                 crnn_sr_lev_dis_list = []
                 crnn_sr_lev_dis_relation_list = []
@@ -885,6 +895,8 @@ class TextSR(base.TextBase):
 
             if epoch % self.cfg.MoranValInterval == 0 and epoch != 0:
                 # MORAN
+
+                moran = self.MORAN_init()
 
                 moran_n_correct_sr_sum = 0
                 moran_sr_lev_dis_list = []
@@ -1015,78 +1027,83 @@ class TextSR(base.TextBase):
                         
                         pbar.set_description("calc ASTER")
                         # ASTER
-                        with Pool(3) as p:
+                        # with Pool(3) as p:
 
-                            f_calculate = partial(TextSR.calculate_aster_pred, cfg=self.cfg, device=self.device, label_strs=label_strs, aster=aster, aster_info=aster_info)
-                            input = ((images_sr, aster_sr_lev_dis_list, aster_sr_lev_dis_relation_list),
-                                    (images_lr, aster_lr_lev_dis_list, aster_lr_lev_dis_relation_list),
-                                    (images_hr, aster_hr_lev_dis_list, aster_hr_lev_dis_relation_list))
-                            result = list(p.starmap(f_calculate, input))
+                        #     f_calculate = partial(TextSR.calculate_aster_pred, cfg=self.cfg, device=self.device, label_strs=label_strs, aster=aster, aster_info=aster_info)
+                        #     input = ((images_sr, aster_sr_lev_dis_list, aster_sr_lev_dis_relation_list),
+                        #             (images_lr, aster_lr_lev_dis_list, aster_lr_lev_dis_relation_list),
+                        #             (images_hr, aster_hr_lev_dis_list, aster_hr_lev_dis_relation_list))
+                        #     result = list(p.starmap(f_calculate, input))
                         
-                        (aster_n_correct_sr, aster_cnt_sr, aster_sr_lev_dis_list, aster_sr_lev_dis_relation_list, aster_sr_pred_text), aster_predict_result_sr = result[0]
-                        (aster_n_correct_lr, aster_cnt_lr, aster_lr_lev_dis_list, aster_lr_lev_dis_relation_list, aster_lr_pred_text), aster_predict_result_lr = result[1]
-                        (aster_n_correct_hr, aster_cnt_hr, aster_hr_lev_dis_list, aster_hr_lev_dis_relation_list, aster_hr_pred_text), aster_predict_result_hr = result[2]
+                        # (aster_n_correct_sr, aster_cnt_sr, aster_sr_lev_dis_list, aster_sr_lev_dis_relation_list, aster_sr_pred_text), aster_predict_result_sr = result[0]
+                        # (aster_n_correct_lr, aster_cnt_lr, aster_lr_lev_dis_list, aster_lr_lev_dis_relation_list, aster_lr_pred_text), aster_predict_result_lr = result[1]
+                        # (aster_n_correct_hr, aster_cnt_hr, aster_hr_lev_dis_list, aster_hr_lev_dis_relation_list, aster_hr_pred_text), aster_predict_result_hr = result[2]
                         
+                        # aster_n_correct_sr_sum += aster_n_correct_sr
+                        # aster_n_correct_lr_sum += aster_n_correct_lr
+                        # aster_n_correct_hr_sum += aster_n_correct_hr
+                        
+                        # SR
+                        result = self.calculate_aster_pred(images_sr, aster_sr_lev_dis_list, aster_sr_lev_dis_relation_list, self.cfg, self.device, label_strs, aster, aster_info)
+                        (aster_n_correct_sr, aster_cnt_sr, aster_sr_lev_dis_list, aster_sr_lev_dis_relation_list, aster_sr_pred_text), aster_predict_result_sr = result
                         aster_n_correct_sr_sum += aster_n_correct_sr
+                        
+                        # LR
+                        result = self.calculate_aster_pred(images_lr, aster_lr_lev_dis_list, aster_lr_lev_dis_relation_list, self.cfg, self.device, label_strs, aster, aster_info)
+                        (aster_n_correct_lr, aster_cnt_lr, aster_lr_lev_dis_list, aster_lr_lev_dis_relation_list, aster_lr_pred_text), aster_predict_result_lr = result
                         aster_n_correct_lr_sum += aster_n_correct_lr
+                        
+                        # HR
+                        result = self.calculate_aster_pred(images_hr, aster_hr_lev_dis_list, aster_hr_lev_dis_relation_list, self.cfg, self.device, label_strs, aster, aster_info)
+                        (aster_n_correct_hr, aster_cnt_hr, aster_hr_lev_dis_list, aster_hr_lev_dis_relation_list, aster_hr_pred_text), aster_predict_result_hr = result
                         aster_n_correct_hr_sum += aster_n_correct_hr
+
+                        del aster
+                        del aster_info
 
                         torch.cuda.empty_cache()
 
                         end_time = time.time() * 1000
                         duration = end_time - start_time
                         spend_time += '\t \t ASTER '+str(duration)+'  \n'
-                        
-                        # # SR
-                        # result = self.calculate_aster_pred(images_sr, aster_sr_lev_dis_list, aster_sr_lev_dis_relation_list, self.cfg, self.device, label_strs, aster, aster_info)
-                        # (aster_n_correct_sr, aster_cnt_sr, aster_sr_lev_dis_list, aster_sr_lev_dis_relation_list, aster_sr_pred_text), aster_predict_result_sr = result
-                        # aster_n_correct_sr_sum += aster_n_correct_sr
-                        
-                        # # LR
-                        # result = self.calculate_aster_pred(images_lr, aster_lr_lev_dis_list, aster_lr_lev_dis_relation_list, self.cfg, self.device, label_strs, aster, aster_info)
-                        # (aster_n_correct_lr, aster_cnt_lr, aster_lr_lev_dis_list, aster_lr_lev_dis_relation_list, aster_lr_pred_text), aster_predict_result_lr = result
-                        # aster_n_correct_lr_sum += aster_n_correct_lr
-                        
-                        # # HR
-                        # result = self.calculate_aster_pred(images_hr, aster_hr_lev_dis_list, aster_hr_lev_dis_relation_list, self.cfg, self.device, label_strs, aster, aster_info)
-                        # (aster_n_correct_hr, aster_cnt_hr, aster_hr_lev_dis_list, aster_hr_lev_dis_relation_list, aster_hr_pred_text), aster_predict_result_hr = result
-                        # aster_n_correct_hr_sum += aster_n_correct_hr
 
                     if epoch % self.cfg.CrnnValInterval == 0 and epoch != 0:
                         start_time = time.time() * 1000
                         pbar.set_description("calc CRNN")
                         # CRNN
                         
-                        with Pool(3) as p:
+                        # with Pool(3) as p:
 
-                            f_calculate = partial(TextSR.calculate_crnn_pred, cfg=self.cfg, label_strs=label_strs, crnn=crnn)
-                            input = ((images_sr, crnn_sr_lev_dis_list, crnn_sr_lev_dis_relation_list),
-                                    (images_lr, crnn_lr_lev_dis_list, crnn_lr_lev_dis_relation_list),
-                                    (images_hr, crnn_hr_lev_dis_list, crnn_hr_lev_dis_relation_list))
-                            result = list(p.starmap(f_calculate, input))
+                        #     f_calculate = partial(TextSR.calculate_crnn_pred, cfg=self.cfg, label_strs=label_strs, crnn=crnn)
+                        #     input = ((images_sr, crnn_sr_lev_dis_list, crnn_sr_lev_dis_relation_list),
+                        #             (images_lr, crnn_lr_lev_dis_list, crnn_lr_lev_dis_relation_list),
+                        #             (images_hr, crnn_hr_lev_dis_list, crnn_hr_lev_dis_relation_list))
+                        #     result = list(p.starmap(f_calculate, input))
                         
-                        (crnn_n_correct_sr, crnn_cnt_sr, crnn_sr_lev_dis_list, crnn_sr_lev_dis_relation_list, crnn_sr_pred_text), crnn_predict_result_sr = result[0]
-                        (crnn_n_correct_lr, crnn_cnt_lr, crnn_lr_lev_dis_list, crnn_lr_lev_dis_relation_list, crnn_lr_pred_text), crnn_predict_result_lr = result[1]
-                        (crnn_n_correct_hr, crnn_cnt_hr, crnn_hr_lev_dis_list, crnn_hr_lev_dis_relation_list, crnn_hr_pred_text), crnn_predict_result_hr = result[2]
+                        # (crnn_n_correct_sr, crnn_cnt_sr, crnn_sr_lev_dis_list, crnn_sr_lev_dis_relation_list, crnn_sr_pred_text), crnn_predict_result_sr = result[0]
+                        # (crnn_n_correct_lr, crnn_cnt_lr, crnn_lr_lev_dis_list, crnn_lr_lev_dis_relation_list, crnn_lr_pred_text), crnn_predict_result_lr = result[1]
+                        # (crnn_n_correct_hr, crnn_cnt_hr, crnn_hr_lev_dis_list, crnn_hr_lev_dis_relation_list, crnn_hr_pred_text), crnn_predict_result_hr = result[2]
 
-                        crnn_n_correct_sr_sum += crnn_n_correct_sr
-                        crnn_n_correct_lr_sum += crnn_n_correct_lr
-                        crnn_n_correct_hr_sum += crnn_n_correct_hr
-                        
-                        # # SR
-                        # result = self.calculate_crnn_pred(images_sr, crnn_sr_lev_dis_list, crnn_sr_lev_dis_relation_list, self.cfg, self.device, label_strs, crnn, crnn_info)
-                        # (crnn_n_correct_sr, crnn_cnt_sr, crnn_sr_lev_dis_list, crnn_sr_lev_dis_relation_list, crnn_sr_pred_text), crnn_predict_result_sr = result
                         # crnn_n_correct_sr_sum += crnn_n_correct_sr
-                        
-                        # # LR
-                        # result = self.calculate_crnn_pred(images_lr, crnn_lr_lev_dis_list, crnn_lr_lev_dis_relation_list, self.cfg, self.device, label_strs, crnn, crnn_info)
-                        # (crnn_n_correct_lr, crnn_cnt_lr, crnn_lr_lev_dis_list, crnn_lr_lev_dis_relation_list, crnn_lr_pred_text), crnn_predict_result_lr = result
                         # crnn_n_correct_lr_sum += crnn_n_correct_lr
-                        
-                        # # HR
-                        # result = self.calculate_crnn_pred(images_hr, crnn_hr_lev_dis_list, crnn_hr_lev_dis_relation_list, self.cfg, self.device, label_strs, crnn, crnn_info)
-                        # (crnn_n_correct_hr, crnn_cnt_hr, crnn_hr_lev_dis_list, crnn_hr_lev_dis_relation_list, crnn_hr_pred_text), crnn_predict_result_hr = result
                         # crnn_n_correct_hr_sum += crnn_n_correct_hr
+                        
+                        # SR
+                        result = self.calculate_crnn_pred(images_sr, crnn_sr_lev_dis_list, crnn_sr_lev_dis_relation_list, self.cfg, label_strs, crnn)
+                        (crnn_n_correct_sr, crnn_cnt_sr, crnn_sr_lev_dis_list, crnn_sr_lev_dis_relation_list, crnn_sr_pred_text), crnn_predict_result_sr = result
+                        crnn_n_correct_sr_sum += crnn_n_correct_sr
+                        
+                        # LR
+                        result = self.calculate_crnn_pred(images_lr, crnn_lr_lev_dis_list, crnn_lr_lev_dis_relation_list, self.cfg, label_strs, crnn)
+                        (crnn_n_correct_lr, crnn_cnt_lr, crnn_lr_lev_dis_list, crnn_lr_lev_dis_relation_list, crnn_lr_pred_text), crnn_predict_result_lr = result
+                        crnn_n_correct_lr_sum += crnn_n_correct_lr
+                        
+                        # HR
+                        result = self.calculate_crnn_pred(images_hr, crnn_hr_lev_dis_list, crnn_hr_lev_dis_relation_list, self.cfg, label_strs, crnn)
+                        (crnn_n_correct_hr, crnn_cnt_hr, crnn_hr_lev_dis_list, crnn_hr_lev_dis_relation_list, crnn_hr_pred_text), crnn_predict_result_hr = result
+                        crnn_n_correct_hr_sum += crnn_n_correct_hr
+
+                        del crnn
 
                         torch.cuda.empty_cache()
 
@@ -1099,36 +1116,38 @@ class TextSR(base.TextBase):
                         pbar.set_description("calc MORAN")
                         # MORAN
                         
-                        with Pool(3) as p:
+                        # with Pool(3) as p:
 
-                            f_calculate = partial(TextSR.calculate_moran_pred, cfg=self.cfg, label_strs=label_strs, moran=moran, converter_moran=self.converter_moran)
-                            input = ((images_sr, moran_sr_lev_dis_list, moran_sr_lev_dis_relation_list),
-                                    (images_lr, moran_lr_lev_dis_list, moran_lr_lev_dis_relation_list),
-                                    (images_hr, moran_hr_lev_dis_list, moran_hr_lev_dis_relation_list))
-                            result = list(p.starmap(f_calculate, input))
+                        #     f_calculate = partial(TextSR.calculate_moran_pred, cfg=self.cfg, label_strs=label_strs, moran=moran, converter_moran=self.converter_moran)
+                        #     input = ((images_sr, moran_sr_lev_dis_list, moran_sr_lev_dis_relation_list),
+                        #             (images_lr, moran_lr_lev_dis_list, moran_lr_lev_dis_relation_list),
+                        #             (images_hr, moran_hr_lev_dis_list, moran_hr_lev_dis_relation_list))
+                        #     result = list(p.starmap(f_calculate, input))
                         
-                        (moran_n_correct_sr, moran_cnt_sr, moran_sr_lev_dis_list, moran_sr_lev_dis_relation_list, moran_sr_pred_text), moran_predict_result_sr = result[0]
-                        (moran_n_correct_lr, moran_cnt_lr, moran_lr_lev_dis_list, moran_lr_lev_dis_relation_list, moran_lr_pred_text), moran_predict_result_lr = result[1]
-                        (moran_n_correct_hr, moran_cnt_hr, moran_hr_lev_dis_list, moran_hr_lev_dis_relation_list, moran_hr_pred_text), moran_predict_result_hr = result[2]
+                        # (moran_n_correct_sr, moran_cnt_sr, moran_sr_lev_dis_list, moran_sr_lev_dis_relation_list, moran_sr_pred_text), moran_predict_result_sr = result[0]
+                        # (moran_n_correct_lr, moran_cnt_lr, moran_lr_lev_dis_list, moran_lr_lev_dis_relation_list, moran_lr_pred_text), moran_predict_result_lr = result[1]
+                        # (moran_n_correct_hr, moran_cnt_hr, moran_hr_lev_dis_list, moran_hr_lev_dis_relation_list, moran_hr_pred_text), moran_predict_result_hr = result[2]
 
-                        moran_n_correct_sr_sum += moran_n_correct_sr
-                        moran_n_correct_lr_sum += moran_n_correct_lr
-                        moran_n_correct_hr_sum += moran_n_correct_hr
-                        
-                        # # SR
-                        # result = self.calculate_moran_pred(images_sr, moran_sr_lev_dis_list, moran_sr_lev_dis_relation_list, self.cfg, self.device, label_strs, moran, moran_info)
-                        # (moran_n_correct_sr, moran_cnt_sr, moran_sr_lev_dis_list, moran_sr_lev_dis_relation_list, moran_sr_pred_text), moran_predict_result_sr = result
                         # moran_n_correct_sr_sum += moran_n_correct_sr
-                        
-                        # # LR
-                        # result = self.calculate_moran_pred(images_lr, moran_lr_lev_dis_list, moran_lr_lev_dis_relation_list, self.cfg, self.device, label_strs, moran, moran_info)
-                        # (moran_n_correct_lr, moran_cnt_lr, moran_lr_lev_dis_list, moran_lr_lev_dis_relation_list, moran_lr_pred_text), moran_predict_result_lr = result
                         # moran_n_correct_lr_sum += moran_n_correct_lr
-                        
-                        # # HR
-                        # result = self.calculate_moran_pred(images_hr, moran_hr_lev_dis_list, moran_hr_lev_dis_relation_list, self.cfg, self.device, label_strs, moran, moran_info)
-                        # (moran_n_correct_hr, moran_cnt_hr, moran_hr_lev_dis_list, moran_hr_lev_dis_relation_list, moran_hr_pred_text), moran_predict_result_hr = result
                         # moran_n_correct_hr_sum += moran_n_correct_hr
+                        
+                        # SR
+                        result = self.calculate_moran_pred(images_sr, moran_sr_lev_dis_list, moran_sr_lev_dis_relation_list, self.cfg, label_strs, moran, self.converter_moran)
+                        (moran_n_correct_sr, moran_cnt_sr, moran_sr_lev_dis_list, moran_sr_lev_dis_relation_list, moran_sr_pred_text), moran_predict_result_sr = result
+                        moran_n_correct_sr_sum += moran_n_correct_sr
+                        
+                        # LR
+                        result = self.calculate_moran_pred(images_lr, moran_lr_lev_dis_list, moran_lr_lev_dis_relation_list, self.cfg, label_strs, moran, self.converter_moran)
+                        (moran_n_correct_lr, moran_cnt_lr, moran_lr_lev_dis_list, moran_lr_lev_dis_relation_list, moran_lr_pred_text), moran_predict_result_lr = result
+                        moran_n_correct_lr_sum += moran_n_correct_lr
+                        
+                        # HR
+                        result = self.calculate_moran_pred(images_hr, moran_hr_lev_dis_list, moran_hr_lev_dis_relation_list, self.cfg, label_strs, moran, self.converter_moran)
+                        (moran_n_correct_hr, moran_cnt_hr, moran_hr_lev_dis_list, moran_hr_lev_dis_relation_list, moran_hr_pred_text), moran_predict_result_hr = result
+                        moran_n_correct_hr_sum += moran_n_correct_hr
+
+                        del moran
 
                         torch.cuda.empty_cache()
 

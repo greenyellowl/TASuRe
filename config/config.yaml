@@ -84,6 +84,7 @@ recognizer_input: 'convnext' # att, convnext. Вход распознавате�
 recognizer_input_convnext: 1 # 1, 2
 #SR
 transpose_upsample: True
+big_transpose: False
 
 # BRANCHES
 
@@ -128,9 +129,9 @@ confuse_path: './pretrained/confuse.pkl'
 displayInterval: 10 #display loss
 # saveInterval: 3560000000
 valInterval: -1 #-1, val at the end of epoch
-AsterValInterval: 50
-CrnnValInterval: 50
-MoranValInterval: 50
+AsterValInterval: 1
+CrnnValInterval: 1
+MoranValInterval: 1
 saveBestModel: True
 
 eval: True

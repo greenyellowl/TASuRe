@@ -32,8 +32,9 @@ class WangjiLoss(nn.Module):
 
         batch_size = len(labels)
         ctc_loss = 0
+        weight = int(self.cfg.width / self.cfg.scale_factor / 2)
         if self.cfg.enable_rec:
-            targets = torch.zeros(batch_size, 32) + int(self.FullVocab['PAD'])
+            targets = torch.zeros(batch_size, weight) + int(self.FullVocab['PAD'])
             # label = label.upper()
 
             for count, label in enumerate(labels):
@@ -57,17 +58,17 @@ class WangjiLoss(nn.Module):
                     elif character in self.Symbols:
                         target.append(int(self.Symbols[character]))
 
-                padding = torch.zeros(32 - len(target)) + int(self.FullVocab['PAD'])
+                padding = torch.zeros(weight - len(target)) + int(self.FullVocab['PAD'])
                 targets[count] = torch.hstack((torch.tensor(target), padding))
 
-            input_lengths = torch.full(size=(batch_size,), fill_value=32, dtype=torch.long)
+            input_lengths = torch.full(size=(batch_size,), fill_value=weight, dtype=torch.long)
 
             target_lengths = torch.zeros(batch_size, dtype=torch.long)
 
             for i in range(len(labels)):
                 target_lengths[i] = len(labels[i])
 
-            # target_lengths = torch.zeros(batch_size)+32
+            # target_lengths = torch.zeros(batch_size)+weight
 
             ctc_loss = self.ctc_loss(tag_scores, targets, input_lengths, target_lengths)
 

@@ -33,6 +33,14 @@ def check_enabled_grad(model):
         else:
             print(name, 'ГРАД ЕСТЬ')
 
+            
+def get_num_params(model):
+    text = ''
+    for name, param in model.named_parameters():
+        text += str(name)+' '+str(param.nelement())+'  \n'
+    text += 'total params: '+str(sum([param.nelement() for param in model.parameters()]))
+    return text
+
 def show_image(images, ind):
     un = UnNormalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     temp_image = images[ind, ...].clone().detach()

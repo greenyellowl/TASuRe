@@ -23,7 +23,7 @@ class Wangji(nn.Module):
         elif self.cfg.convNext_type == 'S':
             depths = [3, 3, 27]
             dims = [96, 192, 384]
-            finalConv_in_channels = 3 if cfg.scale_factor == 2 else None
+            finalConv_in_channels = 3
         # elif self.cfg.convNext_type == 'B': # Не сработает, т.к. нужно, чтобы dims[2] делилось на 3.
         #     depths = [3, 3, 27]
         #     dims = [128, 256, 512]
@@ -101,14 +101,23 @@ class Wangji(nn.Module):
                 self.convBlue1 = nn.Conv2d(in_channels = dims[0], out_channels = dims[1], kernel_size = [3,2], stride=[1,2], dilation=[2,1])
                 self.convBlue2 = nn.Conv2d(in_channels=dims[1], out_channels=dims[2], kernel_size=[3,5], stride=1, dilation=1)
                 if not cfg.transpose_upsample:
-                    self.convBlue3 = nn.Conv2d(in_channels=dims[2]*2, out_channels=dims[2]*scale_factor, kernel_size=1)
+                    if self.cfg.convNext_type == 'S': out_channels = 1024 * 3
+                    else: out_channels = dims[2]*scale_factor
+                    self.convBlue3 = nn.Conv2d(in_channels=dims[2]*2, out_channels=out_channels, kernel_size=1)
             
             if cfg.transpose_upsample:
-                self.convUpsample1 = nn.ConvTranspose2d(in_channels=dims[2]*2,out_channels=dims[1], kernel_size=[2,5], padding=0, output_padding=0, stride=[2,1], dilation=1)
-                self.convUpsample2 = nn.ConvTranspose2d(in_channels=dims[1], out_channels=dims[0], kernel_size=[5,2], padding=0, output_padding=0, stride=[1,2], dilation=1)
-                self.convUpsample3 = nn.ConvTranspose2d(in_channels=dims[0], out_channels=dims[1], kernel_size=[9,2], padding=0, output_padding=0, stride=[1,2], dilation=1)
-                self.convUpsample4 = nn.ConvTranspose2d(in_channels=dims[1], out_channels=dims[1], kernel_size=[17,33], padding=0, output_padding=0, stride=1, dilation=1)
-                self.convUpsample5 = nn.ConvTranspose2d(in_channels=dims[1], out_channels=dims[0], kernel_size=[33,65], padding=0, output_padding=0, stride=1, dilation=1)
+                if cfg.big_transpose:
+                    self.convUpsample1 = nn.ConvTranspose2d(in_channels=dims[2]*2, out_channels=dims[1], kernel_size=[2,5], padding=0, output_padding=0, stride=[2,1], dilation=1)
+                    self.convUpsample2 = nn.ConvTranspose2d(in_channels=dims[1], out_channels=dims[0], kernel_size=[5,2], padding=0, output_padding=0, stride=[1,2], dilation=1)
+                    self.convUpsample3 = nn.ConvTranspose2d(in_channels=dims[0], out_channels=dims[1], kernel_size=[9,2], padding=0, output_padding=0, stride=[1,2], dilation=1)
+                    self.convUpsample4 = nn.ConvTranspose2d(in_channels=dims[1], out_channels=dims[1], kernel_size=[17,33], padding=0, output_padding=0, stride=1, dilation=1)
+                    self.convUpsample5 = nn.ConvTranspose2d(in_channels=dims[1], out_channels=dims[0], kernel_size=[33,65], padding=0, output_padding=0, stride=1, dilation=1)
+                else:
+                    self.convUpsample1 = nn.ConvTranspose2d(in_channels=dims[2]*2, out_channels=dims[1], kernel_size=2, padding=0, output_padding=0, stride=2, dilation=1)
+                    self.convUpsample2 = nn.ConvTranspose2d(in_channels=dims[1], out_channels=dims[0], kernel_size=2, padding=0, output_padding=0, stride=2, dilation=1)
+                    self.convUpsample3 = nn.ConvTranspose2d(in_channels=dims[0], out_channels=dims[1], kernel_size=2, padding=0, output_padding=0, stride=2, dilation=1)
+                    self.convUpsample4 = nn.ConvTranspose2d(in_channels=dims[1], out_channels=dims[1], kernel_size=2, padding=0, output_padding=0, stride=2, dilation=1)
+                    self.convUpsample5 = nn.ConvTranspose2d(in_channels=dims[1], out_channels=dims[0], kernel_size=2, padding=0, output_padding=0, stride=2, dilation=1)
                 finalConv_in_channels = dims[0]
             else:
                 self.upsample = sub_pixel(scale_factor)
@@ -154,7 +163,8 @@ class Wangji(nn.Module):
             # LSTM
 
             if self.cfg.recognizer_input == 'att':
-                input_size = 16*dims[2]
+                # input_size = 16*dims[2] if cfg.scale_factor == 2 else 8*dims[2]
+                input_size = cfg.lstm_hidden_size
             elif self.cfg.recognizer_input == 'convnext':
                 # input_size = dims[self.cfg.recognizer_input_convnext]
                 input_size = (768 if self.cfg.convNext_type == 'T' or self.cfg.convNext_type == 'S' else 1536) if self.cfg.recognizer_input_convnext == 1 else dims[2]
@@ -166,6 +176,7 @@ class Wangji(nn.Module):
             tagset_size  = self.cfg.FULL_VOCAB_SIZE
 
             if cfg.recognizer == 'lstm':
+                self.pre_lstm_linear = nn.Linear(in_features=16*dims[2] if cfg.scale_factor == 2 else 8*dims[2], out_features=hidden_size)
                 self.LSTM = LSTMTagger(input_size, hidden_size, num_layers, batch_first, bidirectional, tagset_size)
             elif cfg.recognizer == 'transformer':
                 self.build_up_transformer()
@@ -303,7 +314,8 @@ class Wangji(nn.Module):
                 y_flat = rearrange(y_summ3, 'b c h w -> b w (h c)')
 
                 # y_linear = self.linear(lstm_out)
-
+            y_flat = self.pre_lstm_linear(y_flat)
+            y_flat = self.act(y_flat)
             tag_scores = self.LSTM(y_flat)
 
             # tag_scores = F.log_softmax(y_linear, dim=2)
