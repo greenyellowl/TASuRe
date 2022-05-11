@@ -10,7 +10,7 @@ import copy
 import logging
 from datetime import datetime
 import utils
-from utils import util, ssim_psnr, UnNormalize, exceptions
+from utils import util, ssim_psnr, UnNormalize, exceptions, utils_moran
 import random
 import os
 import time
@@ -74,7 +74,9 @@ class TextSR(base.TextBase):
                          lstm_bidirectional: {cfg.lstm_bidirectional}  \n
                          recognizer_input: {cfg.recognizer_input}  \n
                          recognizer_input_convnext: {cfg.recognizer_input_convnext}  \n
+                         moran_att: {cfg.moran_att}  \n
                          transpose_upsample: {cfg.transpose_upsample}  \n
+                         transpose_type: {cfg.transpose_type}  \n
                            \n
                          BRANCHES:  \n
                          enable_sr: {cfg.enable_sr}  \n
@@ -89,6 +91,7 @@ class TextSR(base.TextBase):
                            \n
                          LETTERS:  \n
                          letters: {cfg.letters}  \n
+                         allow_symbols: {cfg.allow_symbols}  \n
                          TGT_VOCAB_SIZE: {cfg.TGT_VOCAB_SIZE}  \n
                          FULL_VOCAB_SIZE: {cfg.FULL_VOCAB_SIZE}  \n
                            \n
@@ -105,7 +108,9 @@ class TextSR(base.TextBase):
                          train_data_textzoom_dir: {cfg.train_data_textzoom_dir}  \n
                          test_val_data_dir: {cfg.test_val_data_dir}  \n
                          test_val_data_annotations_file: {cfg.test_val_data_annotations_file}  \n
-                         test_val_textzoom_data_dir: {cfg.test_val_textzoom_data_dir}"""
+                         test_val_textzoom_data_dir: {cfg.test_val_textzoom_data_dir}  \n
+                         enable_lr_albumentations: {cfg.enable_lr_albumentations}  \n
+                         overfitting: {cfg.overfitting}  \n"""
         self.writer.add_text('config', config_txt)
 
         train_dataset, train_loader = self.get_train_data()
@@ -153,6 +158,7 @@ class TextSR(base.TextBase):
         for val_loader in test_val_loader_list:
             data_name = val_loader.dataset.dataset_name
             best_history_follow_metric_values[data_name] = {'epoch': -1, 'value': None}
+        min_val_loss = 99999
         
         best_sum_follow_metric_value = None
 
@@ -187,7 +193,7 @@ class TextSR(base.TextBase):
                 # Получение данных из датасетов
 
                 start_time = time.time() * 1000
-                images_hr, images_lr, label_strs, dataset_name = data
+                images_hr, images_lr, label_len, label_strs, dataset_name = data
                 images_lr = images_lr.to(self.device)
                 images_hr = images_hr.to(self.device)
                 end_time = time.time() * 1000
@@ -195,13 +201,21 @@ class TextSR(base.TextBase):
                 spend_time += 'Получение данных из датасетов '+str(duration)+'  \n'
 
                 # Прогон модели
+
+                length = ''
+                text = ''
+                t, l = self.converter_moran.encode(label_strs, scanned=True)
+                text = torch.LongTensor(cfg.batch_size * 5)
+                length = torch.IntTensor(cfg.batch_size)
+                utils_moran.loadData(text, t)
+                utils_moran.loadData(length, l)
                 
                 start_time = time.time() * 1000
                 if self.cfg.fp16:
                     with autocast():
-                        images_sr, tag_scores = model(images_lr)
+                        images_sr, tag_scores = model(images_lr, length, text)
                 else:
-                    images_sr, tag_scores = model(images_lr)
+                    images_sr, tag_scores = model(images_lr, length, text)
                 end_time = time.time() * 1000
                 duration = end_time - start_time
                 spend_time += 'Прогон модели '+str(duration)+'  \n'
@@ -388,11 +402,11 @@ class TextSR(base.TextBase):
                         crnn = None
                         moran = None
 
-                        metrics_dict, spend_time_val = self.eval(model, val_loader, image_crit, iters, aster, crnn, moran, aster_info, dataset_name, iters, epoch)
+                        metrics_dict, spend_time_val = self.eval(model, val_loader, image_crit, iters, aster, crnn, moran, aster_info, dataset_name, iters, epoch, min_val_loss)
                         metrics_dict_datasets[dataset_name] = metrics_dict
 
                         # Сохраняем значения отслеживаемой метки из каждого датасета
-                        follow_metric_name, _, _ = self.get_follow_metric_name()
+                        follow_metric_name, _, _ = util.get_follow_metric_name(self.cfg)
                         current_follow_metric_dict[dataset_name] = metrics_dict[follow_metric_name]
                         
                         # Обновляем словарь с лучими значениями отслеживаемой метрики в каждом датасете
@@ -445,7 +459,7 @@ class TextSR(base.TextBase):
                 # Сохранение чек-поинта
                 start_time = time.time() * 1000 
                 if iters % len(train_loader)-1 == 0 and iters != 0:
-                    follow_metric_name, _, _ = self.get_follow_metric_name()
+                    follow_metric_name, _, _ = util.get_follow_metric_name(self.cfg)
                     best_model_info = metrics_dict_datasets
                     self.save_checkpoint(model=model,
                         optimizer=optimizer,
@@ -489,38 +503,39 @@ class TextSR(base.TextBase):
             duration = end_time - start_time
             spend_time += 'Лоссы '+str(duration)+'  \n'
 
-            # Метрики по эпохам
-            if self.cfg.enable_sr or self.cfg.train_after_sr or (not self.cfg.enable_rec and self.cfg.recognizer == 'transformer'): 
-                self.writer.add_scalar(f'other_avg/psnr_avg', psnr_avg_sum / cnt, epoch)
-                self.writer.add_scalar(f'other_avg/ssim_avg', ssim_avg_sum / cnt, epoch)
-                
-                if epoch % self.cfg.AsterValInterval == 0 and epoch != 0:
-                    self.writer.add_scalar(f'accuracy_avg/aster_sr_accuracy', aster_sr_accuracy_sum / cnt * 100, epoch)
-                    self.writer.add_scalar(f'other_avg/aster_sr_lev_dis_relation_avg', aster_sr_lev_dis_relation_avg_sum / cnt, epoch)
-                    self.writer.add_scalar(f'accuracy_avg/aster_lr_accuracy', aster_lr_accuracy_sum / cnt * 100, epoch)
-                    self.writer.add_scalar(f'other_avg/aster_lr_lev_dis_relation_avg', aster_lr_lev_dis_relation_avg_sum / cnt, epoch)
-                    self.writer.add_scalar(f'accuracy_avg/aster_hr_accuracy', aster_hr_accuracy_sum / cnt * 100, epoch)
-                    self.writer.add_scalar(f'other_avg/aster_hr_lev_dis_relation_avg', aster_hr_lev_dis_relation_avg_sum / cnt, epoch)
+            if cfg.eval:
+                # Метрики по эпохам
+                if self.cfg.enable_sr or self.cfg.train_after_sr or (not self.cfg.enable_rec and self.cfg.recognizer == 'transformer'): 
+                    self.writer.add_scalar(f'other_avg/psnr_avg', psnr_avg_sum / cnt, epoch)
+                    self.writer.add_scalar(f'other_avg/ssim_avg', ssim_avg_sum / cnt, epoch)
+                    
+                    if epoch % self.cfg.AsterValInterval == 0 and epoch != 0:
+                        self.writer.add_scalar(f'accuracy_avg/aster_sr_accuracy', aster_sr_accuracy_sum / cnt * 100, epoch)
+                        self.writer.add_scalar(f'other_avg/aster_sr_lev_dis_relation_avg', aster_sr_lev_dis_relation_avg_sum / cnt, epoch)
+                        self.writer.add_scalar(f'accuracy_avg/aster_lr_accuracy', aster_lr_accuracy_sum / cnt * 100, epoch)
+                        self.writer.add_scalar(f'other_avg/aster_lr_lev_dis_relation_avg', aster_lr_lev_dis_relation_avg_sum / cnt, epoch)
+                        self.writer.add_scalar(f'accuracy_avg/aster_hr_accuracy', aster_hr_accuracy_sum / cnt * 100, epoch)
+                        self.writer.add_scalar(f'other_avg/aster_hr_lev_dis_relation_avg', aster_hr_lev_dis_relation_avg_sum / cnt, epoch)
 
-                if epoch % self.cfg.CrnnValInterval == 0 and epoch != 0:
-                    self.writer.add_scalar(f'accuracy_avg/crnn_sr_accuracy', crnn_sr_accuracy_sum / cnt * 100, epoch)
-                    self.writer.add_scalar(f'other_avg/crnn_sr_lev_dis_relation_avg', crnn_sr_lev_dis_relation_avg_sum / cnt, epoch)
-                    self.writer.add_scalar(f'accuracy_avg/crnn_lr_accuracy', crnn_lr_accuracy_sum / cnt * 100, epoch)
-                    self.writer.add_scalar(f'other_avg/crnn_lr_lev_dis_relation_avg', crnn_lr_lev_dis_relation_avg_sum / cnt, epoch)
-                    self.writer.add_scalar(f'accuracy_avg/crnn_hr_accuracy', crnn_hr_accuracy_sum / cnt * 100, epoch)
-                    self.writer.add_scalar(f'other_avg/crnn_hr_lev_dis_relation_avg', crnn_hr_lev_dis_relation_avg_sum / cnt, epoch)
-                
-                if epoch % self.cfg.MoranValInterval == 0 and epoch != 0:
-                    self.writer.add_scalar(f'accuracy_avg/moran_sr_accuracy', moran_sr_accuracy_sum / cnt * 100, epoch)
-                    self.writer.add_scalar(f'other_avg/moran_sr_lev_dis_relation_avg', moran_sr_lev_dis_relation_avg_sum / cnt, epoch)
-                    self.writer.add_scalar(f'accuracy_avg/moran_lr_accuracy', moran_lr_accuracy_sum / cnt * 100, epoch)
-                    self.writer.add_scalar(f'other_avg/moran_lr_lev_dis_relation_avg', moran_lr_lev_dis_relation_avg_sum / cnt, epoch)
-                    self.writer.add_scalar(f'accuracy_avg/moran_hr_accuracy', moran_hr_accuracy_sum / cnt * 100, epoch)
-                    self.writer.add_scalar(f'other_avg/moran_hr_lev_dis_relation_avg', moran_hr_lev_dis_relation_avg_sum / cnt, epoch)
- 
-            if self.cfg.enable_rec:
-                self.writer.add_scalar(f'accuracy_avg/ctc_sr_accuracy', ctc_sr_accuracy_sum / cnt * 100, epoch)
-                self.writer.add_scalar(f'other_avg/ctc_sr_lev_dis_relation_avg', ctc_sr_lev_dis_relation_avg_sum / cnt, epoch)
+                    if epoch % self.cfg.CrnnValInterval == 0 and epoch != 0:
+                        self.writer.add_scalar(f'accuracy_avg/crnn_sr_accuracy', crnn_sr_accuracy_sum / cnt * 100, epoch)
+                        self.writer.add_scalar(f'other_avg/crnn_sr_lev_dis_relation_avg', crnn_sr_lev_dis_relation_avg_sum / cnt, epoch)
+                        self.writer.add_scalar(f'accuracy_avg/crnn_lr_accuracy', crnn_lr_accuracy_sum / cnt * 100, epoch)
+                        self.writer.add_scalar(f'other_avg/crnn_lr_lev_dis_relation_avg', crnn_lr_lev_dis_relation_avg_sum / cnt, epoch)
+                        self.writer.add_scalar(f'accuracy_avg/crnn_hr_accuracy', crnn_hr_accuracy_sum / cnt * 100, epoch)
+                        self.writer.add_scalar(f'other_avg/crnn_hr_lev_dis_relation_avg', crnn_hr_lev_dis_relation_avg_sum / cnt, epoch)
+                    
+                    if epoch % self.cfg.MoranValInterval == 0 and epoch != 0:
+                        self.writer.add_scalar(f'accuracy_avg/moran_sr_accuracy', moran_sr_accuracy_sum / cnt * 100, epoch)
+                        self.writer.add_scalar(f'other_avg/moran_sr_lev_dis_relation_avg', moran_sr_lev_dis_relation_avg_sum / cnt, epoch)
+                        self.writer.add_scalar(f'accuracy_avg/moran_lr_accuracy', moran_lr_accuracy_sum / cnt * 100, epoch)
+                        self.writer.add_scalar(f'other_avg/moran_lr_lev_dis_relation_avg', moran_lr_lev_dis_relation_avg_sum / cnt, epoch)
+                        self.writer.add_scalar(f'accuracy_avg/moran_hr_accuracy', moran_hr_accuracy_sum / cnt * 100, epoch)
+                        self.writer.add_scalar(f'other_avg/moran_hr_lev_dis_relation_avg', moran_hr_lev_dis_relation_avg_sum / cnt, epoch)
+    
+                if self.cfg.enable_rec:
+                    self.writer.add_scalar(f'accuracy_avg/ctc_sr_accuracy', ctc_sr_accuracy_sum / cnt * 100, epoch)
+                    self.writer.add_scalar(f'other_avg/ctc_sr_lev_dis_relation_avg', ctc_sr_lev_dis_relation_avg_sum / cnt, epoch)
             
     @staticmethod
     def get_crnn_pred(outputs):
@@ -590,18 +605,12 @@ class TextSR(base.TextBase):
 
         return current_row[n]
 
-
     @staticmethod
     def calculate_acc_lev_dis(cfg, pred_str_sr, label_strs, lev_dis_list, lev_dis_relation_list):
         cnt = 0
         n_correct = 0
         pred_text = 'target -> pred  \n'
-        for pred, target in zip(pred_str_sr, label_strs):
-            if cfg.letters == 'lower':
-                target = target.lower()
-            elif cfg.letters == 'upper':
-                target = target.upper()
-                
+        for pred, target in zip(pred_str_sr, label_strs):                
             pred_text += target+' -> '+pred+"  \n"
             lev_dis = TextSR.levenshtein_distance(target, pred)
             lev_dis_list.append(lev_dis)
@@ -637,24 +646,7 @@ class TextSR(base.TextBase):
         preds, preds_reverse = moran_output[0]
         _, preds = preds.max(1)
         sim_preds = converter_moran.decode(preds.data, moran_input[1].data)
-        pred_str_sr = [pred.split('$')[0] for pred in sim_preds]
-
-        # cnt = 0
-        # n_correct = 0
-        # pred_text = 'target -> moran_pred  \n'
-        # for pred, target in zip(pred_str_sr, label_strs):
-        #     if cfg.letters == 'lower':
-        #         target = target.lower()
-        #     elif cfg.letters == 'upper':
-        #         target = target.upper()
-                
-        #     pred_text += target+' -> '+pred+"  \n"
-        #     lev_dis = TextSR.levenshtein_distance(target, pred)
-        #     moran_lev_dis_list.append(lev_dis)
-        #     moran_lev_dis_relation_list.append(lev_dis / len(target) if len(target) > 0 else lev_dis)
-        #     if pred == target:
-        #         n_correct += 1
-        #     cnt += 1        
+        pred_str_sr = [pred.split('$')[0] for pred in sim_preds]  
         
         return TextSR.calculate_acc_lev_dis(cfg, pred_str_sr, label_strs, moran_lev_dis_list, moran_lev_dis_relation_list), pred_str_sr
 
@@ -665,11 +657,6 @@ class TextSR(base.TextBase):
         ctc_pred_text = 'target -> ctc_decode_string  \n'
         ctc_decode_strings = self.ctc_decode(tag_scores)
         for ctc_decode_string, target in zip(ctc_decode_strings, label_strs):
-            if self.cfg.letters == 'lower':
-                target = target.lower()
-            elif self.cfg.letters == 'upper':
-                target = target.upper()
-
             ctc_pred_text += target+' -> '+ctc_decode_string+"  \n"
             lev_dis = self.levenshtein_distance(target, ctc_decode_string)
             ctc_lev_dis_list.append(lev_dis)
@@ -681,37 +668,9 @@ class TextSR(base.TextBase):
         return ctc_n_correct, ctc_cnt, ctc_lev_dis_list, ctc_lev_dis_relation_list, ctc_pred_text, ctc_decode_strings
     
     
-    def get_follow_metric_name(self):
-        if (self.cfg.enable_rec == True or self.cfg.recognizer == 'transformer') and self.cfg.rec_best_model_save != 'ssim':
-            if self.cfg.acc_best_model == 'crnn':
-                metric_name = 'crnn_sr'
-            elif self.cfg.acc_best_model == 'ctc':
-                metric_name = 'ctc_sr'
-            else:
-                raise exceptions.WrongModelForSaveBestRec
-            if self.cfg.rec_best_model_save == 'acc':
-                metric_name += '_accuracy'
-                metric_print = 'accuracy'
-                direction = 'max'
-            elif self.cfg.rec_best_model_save == 'lev_dis':
-                metric_name += '_lev_dis_relation_avg'
-                metric_print = 'levenshtein_distance'
-                direction = 'min'
-            else:
-                raise exceptions.WrongMetrucForSaveBestRec
-        elif self.cfg.enable_sr == True:
-            metric_name = 'ssim_avg'
-            metric_print = 'SSIM'
-            direction = 'max'
-        else:
-            raise exceptions.WrongEnabledBranches
-
-        return metric_name, metric_print, direction
-    
-    
     def update_best_metric(self, metrics_dict, best_history_metric_values, dataset_name, epoch):
         
-        metric_name, metric_print, direction = self.get_follow_metric_name()
+        metric_name, metric_print, direction = util.get_follow_metric_name(self.cfg)
         # acc_metric_name, metric_print, direction
         
         current_metric = metrics_dict[metric_name]
@@ -750,7 +709,7 @@ class TextSR(base.TextBase):
                         scheduler_warmup, 
                         iters, 
                         epoch):
-        follow_metric_name, metric_print, direction = self.get_follow_metric_name()
+        follow_metric_name, metric_print, direction = util.get_follow_metric_name(self.cfg)
 
         current_metric_sum = sum(current_metric_dict.values())
         if best_sum_metric_value is None:
@@ -836,7 +795,7 @@ class TextSR(base.TextBase):
         return metric_dict
     
     # валидация одного датасета
-    def eval(self, model, val_loader, image_crit, index, aster, crnn, moran, aster_info, dataset_name, iters, epoch):
+    def eval(self, model, val_loader, image_crit, index, aster, crnn, moran, aster_info, dataset_name, iters, epoch, min_val_loss):
         with torch.no_grad():
 
             spend_time = ''
@@ -847,12 +806,6 @@ class TextSR(base.TextBase):
             start_time = time.time() * 1000
 
             model.eval()
-            if epoch % self.cfg.CrnnValInterval == 0 and epoch != 0:
-                crnn.eval()
-            if epoch % self.cfg.AsterValInterval == 0 and epoch != 0:
-                aster.eval()
-            if epoch % self.cfg.MoranValInterval == 0 and epoch != 0:
-                moran.eval()
 
             end_time = time.time() * 1000
             duration = end_time - start_time
@@ -865,8 +818,6 @@ class TextSR(base.TextBase):
 
             if epoch % self.cfg.AsterValInterval == 0 and epoch != 0:
                 # ASTER
-
-                aster, aster_info = self.Aster_init()
                 
                 aster_n_correct_sr_sum = 0
                 aster_sr_lev_dis_list = []
@@ -881,8 +832,6 @@ class TextSR(base.TextBase):
             if epoch % self.cfg.CrnnValInterval == 0 and epoch != 0:
                 # CRNN
 
-                crnn, _ = self.CRNN_init()
-
                 crnn_n_correct_sr_sum = 0
                 crnn_sr_lev_dis_list = []
                 crnn_sr_lev_dis_relation_list = []
@@ -895,9 +844,6 @@ class TextSR(base.TextBase):
 
             if epoch % self.cfg.MoranValInterval == 0 and epoch != 0:
                 # MORAN
-
-                moran = self.MORAN_init()
-
                 moran_n_correct_sr_sum = 0
                 moran_sr_lev_dis_list = []
                 moran_sr_lev_dis_relation_list = []
@@ -951,7 +897,7 @@ class TextSR(base.TextBase):
                 start_time = time.time() * 1000
                 # Получение данных из датасетов
 
-                images_hr, images_lr, label_strs, _ = data
+                images_hr, images_lr, _, label_strs, _ = data
 
                 val_batch_size = images_lr.shape[0]
 
@@ -966,7 +912,15 @@ class TextSR(base.TextBase):
 
                 start_time = time.time() * 1000
 
-                images_sr, tag_scores = model(images_lr)
+                length = ''
+                text = ''
+                t, l = self.converter_moran.encode(label_strs, scanned=True)
+                text = torch.LongTensor(self.cfg.batch_size * 5)
+                length = torch.IntTensor(self.cfg.batch_size)
+                utils_moran.loadData(text, t)
+                utils_moran.loadData(length, l)
+
+                images_sr, tag_scores = model(images_lr, length, text)
 
                 end_time = time.time() * 1000
                 duration = end_time - start_time
@@ -1027,6 +981,10 @@ class TextSR(base.TextBase):
                         
                         pbar.set_description("calc ASTER")
                         # ASTER
+
+                        aster, aster_info = self.Aster_init()
+                        aster.eval()
+
                         # with Pool(3) as p:
 
                         #     f_calculate = partial(TextSR.calculate_aster_pred, cfg=self.cfg, device=self.device, label_strs=label_strs, aster=aster, aster_info=aster_info)
@@ -1071,6 +1029,9 @@ class TextSR(base.TextBase):
                         start_time = time.time() * 1000
                         pbar.set_description("calc CRNN")
                         # CRNN
+
+                        crnn, _ = self.CRNN_init()
+                        crnn.eval()
                         
                         # with Pool(3) as p:
 
@@ -1115,6 +1076,10 @@ class TextSR(base.TextBase):
                         start_time = time.time() * 1000
                         pbar.set_description("calc MORAN")
                         # MORAN
+
+                        moran = self.MORAN_init()
+                        moran.eval()
+
                         
                         # with Pool(3) as p:
 
@@ -1205,10 +1170,6 @@ class TextSR(base.TextBase):
                     # Если включена ветка распознавания
                     if self.cfg.enable_rec:
                         ground_truth = label_strs[index].replace('"', '<quot>')
-                        if self.cfg.letters == 'lower':
-                            ground_truth = ground_truth.lower()
-                        elif self.cfg.letters == 'upper':
-                            ground_truth = ground_truth.upper()
                         ctc_pred = ctc_decode_strings[index].replace('"', '<quot>')
 
                         self.writer.add_text(f'CTC_pred/{epoch}_epoch/{dataset_name}', ctc_pred_text)
@@ -1284,6 +1245,11 @@ class TextSR(base.TextBase):
             self.multi_writer.add_scalar(f'validation/mse_loss/{dataset_name}', mse_loss_avg, iters)
             ctc_loss_avg = ctc_loss_sum / len(val_loader)
             self.multi_writer.add_scalar(f'validation/ctc_loss/{dataset_name}', ctc_loss_avg, iters)
+
+            # if loss_avg > min_val_loss:
+            #     print('saving best val loss model')
+            #     self.save_checkpoint(model, optimizer, epoch, iters, follow_metric_name, best_history_metric_values, best_model_info, True,
+            #                     self.log_dir_name, scheduler, scheduler_warmup)
 
             print('[{}]\t'
                   'loss {:.3f} | mse_loss {:.3f} | ctc_loss {:.3f}\t'
@@ -1405,7 +1371,7 @@ class TextSR(base.TextBase):
             time_begin = time.time()
             sr_time = 0
             for i, data in (enumerate(test_loader)):
-                images_hr, images_lr, label_strs = data
+                images_hr, images_lr, _, label_strs, _ = data
                 val_batch_size = images_lr.shape[0]
                 images_lr = images_lr.to(self.device)
                 images_hr = images_hr.to(self.device)

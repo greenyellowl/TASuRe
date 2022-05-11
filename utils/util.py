@@ -11,6 +11,8 @@ from IPython import embed
 import matplotlib.pyplot as plt
 from string import ascii_uppercase, ascii_lowercase
 
+from utils import exceptions
+
 
 def str_filt(str_, voc_type):
     alpha_dict = {
@@ -32,7 +34,6 @@ def check_enabled_grad(model):
             print(name, 'ГРАД НЕТ')
         else:
             print(name, 'ГРАД ЕСТЬ')
-
             
 def get_num_params(model):
     text = ''
@@ -64,19 +65,49 @@ def get_vocab(cfg):
         Letters = {letter: str(index) for index, letter in enumerate(ascii_lowercase, start=11)}
     elif cfg.letters == 'upper':
         Letters = {letter: str(index) for index, letter in enumerate(ascii_uppercase, start=11)}
-    Symbols = ['+', '|', '[', '%', ':', ',', '>', '@', '$', ')', '©', '-', ';', '!', '&', '?', '.',
-                ']', '/', '#', '=', '‰', '(', '\'', '\"', ' ']
-
-    Symbols = {symbols: str(index) for index, symbols in enumerate(Symbols, start=int(Letters[list(Letters)[-1]]) + 1)}
+    if cfg.allow_symbols:
+        Symbols = ['+', '|', '[', '%', ':', ',', '>', '@', '$', ')', '©', '-', ';', '!', '&', '?', '.',
+                    ']', '/', '#', '=', '‰', '(', '\'', '\"', ' ']
+        Symbols = {symbols: str(index) for index, symbols in enumerate(Symbols, start=int(Letters[list(Letters)[-1]]) + 1)}
+    else:
+        Symbols = {}
     
-    BOS_ind = str(int(Symbols[list(Symbols)[-1]])+1)
-    EOS_ind = str(int(Symbols[list(Symbols)[-1]])+2)
-    PAD_ind = str(int(Symbols[list(Symbols)[-1]])+3)
+    array = Symbols if cfg.allow_symbols else Letters
+    BOS_ind = str(int(array[list(array)[-1]])+1)
+    EOS_ind = str(int(array[list(array)[-1]])+2)
+    PAD_ind = str(int(array[list(array)[-1]])+3)
     FullVocab = blank_digits_dict | Letters | Symbols | {"BOS": BOS_ind, "EOS": EOS_ind, "PAD": PAD_ind}
     
     FullVocabList = blank_digits_list + list(Letters.keys()) + list(Symbols.keys()) + ['BOS', 'EOS', 'PAD']
 
     return Letters, Symbols, FullVocab, FullVocabList
+
+def get_follow_metric_name(cfg):
+    if (cfg.enable_rec == True or cfg.recognizer == 'transformer') and cfg.rec_best_model_save != 'ssim':
+        if cfg.acc_best_model == 'crnn':
+            metric_name = 'crnn_sr'
+        elif cfg.acc_best_model == 'ctc':
+            metric_name = 'ctc_sr'
+        else:
+            raise exceptions.WrongModelForSaveBestRec
+        if cfg.rec_best_model_save == 'acc':
+            metric_name += '_accuracy'
+            metric_print = 'accuracy'
+            direction = 'max'
+        elif cfg.rec_best_model_save == 'lev_dis':
+            metric_name += '_lev_dis_relation_avg'
+            metric_print = 'levenshtein_distance'
+            direction = 'min'
+        else:
+            raise exceptions.WrongMetrucForSaveBestRec
+    elif cfg.enable_sr == True:
+        metric_name = 'ssim_avg'
+        metric_print = 'SSIM'
+        direction = 'max'
+    else:
+        raise exceptions.WrongEnabledBranches
+
+    return metric_name, metric_print, direction
 
 class strLabelConverter(object):
     """Convert between str and label.
@@ -235,6 +266,7 @@ class UnNormalize(object):
             t.mul_(s).add_(m)
             # The normalize code -> t.sub_(m).div_(s)
         return tensor
+
 
 if __name__=='__main__':
     converter = strLabelConverter(string.digits+string.ascii_lowercase)

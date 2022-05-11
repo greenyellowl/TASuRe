@@ -3,6 +3,12 @@
 
 #datasets_folder_path: 'D:/Google Drive/Disser/Code/Datasets'
 datasets_folder_path: '/home/helen/Datasets'
+train_data_dir_of: [
+  '/ICDAR OF',
+]
+train_data_annotations_file_of: [
+  '/ICDAR OF/gt.txt',
+]
 train_data_dir: [
   '/ICDAR 2013/Challenge2_Training_Task3_Images_GT',
   '/ICDAR 2015/ch4_training_word_images_gt',
@@ -23,6 +29,12 @@ train_data_textzoom_dir: [
   '/TextZoom/train2',
 ]
 
+test_val_data_dir_of: [
+  '/ICDAR OF',
+]
+test_val_data_annotations_file_of: [
+  '/ICDAR OF/gt.txt',
+]
 test_val_data_dir: [
   '/ICDAR 2013/Challenge2_Test_Task3_Images',
   '/ICDAR 2015/ch4_test_word_images_gt',
@@ -43,14 +55,15 @@ test_val_textzoom_data_dir: [
   '/TextZoom/test/hard',
 ]
 
-enable_lr_albumentations: True
+overfitting: False
+enable_lr_albumentations: False
 
 # COMMON
 
 width: 128
 height: 64
-batch_size: 150
-batch_size_val: 70
+batch_size: 100
+batch_size_val: 100
 epochs: 1000
 lr: 0.001
 scale_factor: 4
@@ -58,21 +71,21 @@ workers: 24
 fp16: False
 
 # resume: '/home/helen/code/TextSR/checkpoint/log_2022-04-25_02_21_43.606800 - 39/model_best.pth'
-# resume: '/home/helen/code/TextSR/checkpoint/log_2022-05-02_12_49_52.696597 - 51/checkpoint.pth'
-resume: ''
+resume: '/home/helen/code/TextSR/checkpoint/log_2022-05-11_11_23_53.055051/checkpoint.pth'
+# resume: ''
 
 # LOSS
 
 lambda_mse: 1
 lambda_ctc: 1
-clip_grad_norm_first_epochs: 200
+clip_grad_norm_first_epochs: 0.05
 cnt_first_epochs: 6
-clip_grad_norm_: 200
+clip_grad_norm_: 0.05
 adam_weight_decay: 0
 
 # MODEL STRUCTURE
 
-convNext_type: 'XL' # T, S, L
+convNext_type: 'L' # T, S, L
 convnext_layernorm: True
 rec_best_model_save: 'ssim' # ssim, lev_dis, acc По какой метрике сохранять лучшую модель
 # REC
@@ -80,11 +93,13 @@ acc_best_model: 'ctc' # ctc, crnn. По какому распознавател�
 recognizer: 'lstm' # transformer или lstm.
 num_lstm_layers: 1
 lstm_bidirectional: False
-recognizer_input: 'convnext' # att, convnext. Вход распознавателя
+lstm_hidden_size: 256
+recognizer_input: 'att' # att, convnext. Вход распознавателя
 recognizer_input_convnext: 1 # 1, 2
+moran_att: True
 #SR
 transpose_upsample: True
-big_transpose: False
+transpose_type: 'med' # big med small
 
 # BRANCHES
 
@@ -101,12 +116,16 @@ train_after_sr: False
 # LETTERS
 
 letters: 'lower' # lower upper all
+allow_symbols: False
 # большие и маленькие английские буквы + 10 цифр + 25 символов + пробел
 # TGT_VOCAB_SIZE: 88
 # FULL_VOCAB_SIZE: 92
 # (большие или маленькие) английские буквы + 10 цифр + 25 символов + пробел
-TGT_VOCAB_SIZE: 62
-FULL_VOCAB_SIZE: 66
+# TGT_VOCAB_SIZE: 62
+# FULL_VOCAB_SIZE: 66
+# (большие или маленькие) английские буквы + 10 цифр + пробел
+TGT_VOCAB_SIZE: 36
+FULL_VOCAB_SIZE: 40
 max_len: 32
 
 # SCHEDULER
@@ -129,9 +148,9 @@ confuse_path: './pretrained/confuse.pkl'
 displayInterval: 10 #display loss
 # saveInterval: 3560000000
 valInterval: -1 #-1, val at the end of epoch
-AsterValInterval: 1
-CrnnValInterval: 1
-MoranValInterval: 1
+AsterValInterval: 20
+CrnnValInterval: 20
+MoranValInterval: 20
 saveBestModel: True
 
 eval: True

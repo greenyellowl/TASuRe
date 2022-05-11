@@ -39,10 +39,7 @@ class WangjiLoss(nn.Module):
 
             for count, label in enumerate(labels):
                 target = []
-                if self.cfg.letters == 'lower':
-                    label = label.lower()
-                elif self.cfg.letters == 'upper':
-                    label = label.upper()
+
                 for character in label:
 
                     # print(character)

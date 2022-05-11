@@ -18,6 +18,7 @@ import albumentations.augmentations.geometric
 from torchvision.transforms import ToTensor
 import albumentations.pytorch
 import matplotlib.pyplot as plt
+import re
 
 
 class MyDataset():
@@ -28,6 +29,7 @@ class MyDataset():
         self.cfg = cfg
         self.isTextZoom = isTextZoom
         self.isEval = isEval
+        self.regex = re.compile('[^a-zA-Z0-9]')
 
     def load_dataset(self):
 
@@ -74,42 +76,45 @@ class MyDataset():
         # Загрузка датасета
         if self.isTextZoom:
             imgs_dir_path = self.datasets_folder_path + self.data_dir
-            train_dataset = lmdbDataset(root=imgs_dir_path, transforms = transforms, max_len=self.cfg.max_len)
+            train_dataset = lmdbDataset(root=imgs_dir_path, transforms = transforms, max_len=self.cfg.max_len, regex=self.regex, cfg=self.cfg)
         else:
             annotations_file_path = self.datasets_folder_path + self.data_annotations_file
             imgs_dir_path = self.datasets_folder_path + self.data_dir
             # train_dataset = ICDARImageDataset(annotations_file_path, imgs_dir_path)
-            train_dataset = ICDARImageDataset(annotations_file_path, imgs_dir_path, transforms)
+            train_dataset = ICDARImageDataset(annotations_file_path, imgs_dir_path, regex=self.regex, transforms=transforms, cfg=self.cfg)
         return train_dataset
 
 
 class ICDARImageDataset(Dataset):
-    def __init__(self, annotations_file, img_dir, transforms=None, target_transform=None):
+    def __init__(self, annotations_file, img_dir, regex, cfg, transforms=None, target_transform=None):
         self.img_labels = pd.read_csv(annotations_file, sep=', ', header=None, engine='python', na_filter=False)
         self.img_dir = img_dir
         self.transforms = transforms
         self.target_transform = target_transform
         self.dataset_name = os.path.basename(os.path.dirname(img_dir))
         self.to_tensor = ToTensor()
+        self.regex = regex
+        self.cfg = cfg
 
     def __len__(self):
         return len(self.img_labels)
 
     def __getitem__(self, idx):
         img_path = os.path.join(self.img_dir, self.img_labels.iloc[idx, 0])
+
         image = read_image(img_path, ImageReadMode.RGB).numpy()
-        # image = read_image(img_path, ImageReadMode.RGB)
-        # image = read_image(img_path)
-        # image = Image.open(img_path)
-        # print(image.shape)
-        # print(image.shape)
-        # print(image)
+
         if self.transforms:
             image = np.moveaxis(image, 0, -1)
+
         label = str(self.img_labels.iloc[idx, 1])
-        # label = label
-        # plt.imshow(image)
-        # plt.show()
+        if not self.cfg.allow_symbols:
+            label = self.regex.sub('', label)
+        if self.cfg.letters == 'lower':
+            label = label.lower()
+        elif self.cfg.letters == 'upper':
+            label = label.upper()
+
         if self.transforms:
             image_tr = self.transforms['transform_init'](image=image)['image'] if self.transforms['transform_init'] else image
             image_hr = self.transforms['transform_hr'](image=image_tr)
@@ -119,15 +124,12 @@ class ICDARImageDataset(Dataset):
             image_lr = self.to_tensor(image_lr['image'])
         if self.target_transform:
             label = self.target_transform(label)
-        # un = UnNormalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-        # img_un = un(image_hr['image'])
-        # plt.imshow(torch.moveaxis(img_un,0,2))
-        # plt.show()
-        return image_hr, image_lr, label, self.dataset_name
+            
+        return image_hr, image_lr, len(label), label, self.dataset_name
 
 
 class lmdbDataset(Dataset):
-    def __init__(self, root=None, voc_type='lower', max_len=32, test=False, val=False, transforms=None):
+    def __init__(self, regex, cfg, root=None, voc_type='lower', max_len=32, test=False, val=False, transforms=None):
         super(lmdbDataset, self).__init__()
 
         self.root = root
@@ -137,6 +139,8 @@ class lmdbDataset(Dataset):
         self.val = val
         self.transforms = transforms
         self.dataset_name = os.path.basename(os.path.dirname(os.path.dirname(root)))+'_'+os.path.basename(root)
+        self.regex = regex
+        self.cfg = cfg
 
         self.open_lmdb()
         self.env.close()
@@ -187,6 +191,12 @@ class lmdbDataset(Dataset):
 
         label_key = b'label-%09d' % index
         word = str(txn.get(label_key).decode())
+        if not self.cfg.allow_symbols:
+            word = self.regex.sub('', word)
+        if self.cfg.letters == 'lower':
+            word = word.lower()
+        elif self.cfg.letters == 'upper':
+            word = word.upper()
         if len(word)>32:
             return self[index + 1]
 
@@ -215,7 +225,7 @@ class lmdbDataset(Dataset):
         # plt.imshow(torch.moveaxis(img_un,0,2))
         # plt.show()
 
-        return image_hr, image_lr, word, self.dataset_name
+        return image_hr, image_lr, len(word), word, self.dataset_name
 
     @staticmethod
     def str_filt(str_, voc_type):

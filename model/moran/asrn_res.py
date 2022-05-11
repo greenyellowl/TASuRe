@@ -42,7 +42,7 @@ class AttentionCell(nn.Module):
         nC = feats.size(2)
         hidden_size = self.hidden_size
 
-        feats_proj = self.i2h(feats.view(-1,nC))
+        feats_proj = self.i2h(feats.contiguous().view(-1,nC))
         prev_hidden_proj = self.h2h(prev_hidden).view(1,nB, hidden_size).expand(nT, nB, hidden_size).contiguous().view(-1, hidden_size)
         emition = self.score(F.tanh(feats_proj + prev_hidden_proj).view(-1, hidden_size)).view(nT,nB)
 
@@ -71,6 +71,7 @@ class Attention(nn.Module):
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.generator = nn.Linear(hidden_size, num_classes)
+        torch.manual_seed(1234)
         self.char_embeddings = Parameter(torch.randn(num_classes+1, num_embeddings))
         self.num_embeddings = num_embeddings
         self.num_classes = num_classes

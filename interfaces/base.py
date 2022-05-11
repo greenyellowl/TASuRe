@@ -51,22 +51,24 @@ class TextBase(object):
 
     def get_train_data(self):
         cfg = self.cfg # инициализация конфига
-        if isinstance(cfg.train_data_dir, list):
+        train_data_dir = cfg.train_data_dir if not cfg.overfitting else cfg.train_data_dir_of
+        train_data_annotations_file = cfg.train_data_annotations_file if not cfg.overfitting else cfg.train_data_annotations_file_of
+        if isinstance(train_data_dir, list):
             dataset_list = []
-            if len(cfg.train_data_dir) > 0:
-                for data_dir_ in cfg.train_data_dir: # Обычные изображния
-                    el_index = cfg.train_data_dir.index(data_dir_)
-                    train_data_annotations_file = cfg.train_data_annotations_file[el_index]
+            if len(train_data_dir) > 0:
+                for data_dir_ in train_data_dir: # Обычные изображния
+                    el_index = train_data_dir.index(data_dir_)
+                    annotations_file = train_data_annotations_file[el_index]
                     print('collect dataset: '+data_dir_)
                     dataset_list.append(
                         self.load_dataset(cfg=cfg,
                                         isTextZoom=False,
                                         data_dir=data_dir_,
-                                        data_annotations_file=train_data_annotations_file,
+                                        data_annotations_file=annotations_file,
                                         # voc_type=cfg.voc_type,
                                         # max_len=cfg.max_len,
                                         ).load_dataset()) # создаётся объект класса loadDataset
-            if len(cfg.train_data_textzoom_dir) > 0:
+            if len(cfg.train_data_textzoom_dir) > 0 and not cfg.overfitting:
                 for data_dir_ in cfg.train_data_textzoom_dir: # TextZoom
                     print('collect dataset: '+data_dir_)
                     dataset_list.append(
@@ -89,21 +91,22 @@ class TextBase(object):
 
     def get_test_val_data(self):
         cfg = self.cfg
-
-        if isinstance(cfg.test_val_data_dir, list):
+        test_val_data_dir = cfg.test_val_data_dir if not cfg.overfitting else cfg.test_val_data_dir_of
+        test_val_data_annotations_file = cfg.test_val_data_annotations_file if not cfg.overfitting else cfg.test_val_data_annotations_file_of
+        if isinstance(test_val_data_dir, list):
             dataset_list = []
             loader_list = []
 
-            if len(cfg.train_data_dir) > 0:
-                for data_dir_ in cfg.test_val_data_dir: # Обычные изображния
+            if len(test_val_data_dir) > 0:
+                for data_dir_ in test_val_data_dir: # Обычные изображния
                     print('collect dataset: '+data_dir_)
-                    el_index = cfg.test_val_data_dir.index(data_dir_)
-                    data_annotations_file = cfg.test_val_data_annotations_file[el_index]
+                    el_index = test_val_data_dir.index(data_dir_)
+                    annotations_file = test_val_data_annotations_file[el_index]
 
                     test_val_dataset = self.load_dataset(cfg=cfg,
                                         isTextZoom=False,
                                         data_dir=data_dir_,
-                                        data_annotations_file=data_annotations_file,
+                                        data_annotations_file=annotations_file,
                                         isEval=True,
                                         # voc_type=cfg.voc_type,
                                         # max_len=cfg.max_len,
@@ -117,7 +120,7 @@ class TextBase(object):
                         shuffle=False, num_workers=int(cfg.workers),drop_last=False, pin_memory=True)
                     loader_list.append(test_val_loader)
 
-            if len(cfg.test_val_textzoom_data_dir)>0:
+            if len(cfg.test_val_textzoom_data_dir) > 0 and not cfg.overfitting:
                 for data_dir_ in cfg.test_val_textzoom_data_dir: # TextZoom
                     print('collect dataset: '+data_dir_)
                     test_val_dataset = self.load_dataset(cfg=cfg,
@@ -248,7 +251,7 @@ class TextBase(object):
         cfg = self.cfg
         aster_info = AsterInfo(cfg.voc_type)
         model_path = self.cfg.crnn_pretrained
-        print('loading pretrained crnn model from %s' % model_path)
+        # print('loading pretrained crnn model from %s' % model_path)
         model.load_state_dict(torch.load(model_path))
         return model, aster_info
         
@@ -304,6 +307,7 @@ class TextBase(object):
         utils_moran.loadData(text, t)
         utils_moran.loadData(length, l)
         return tensor, length, text, text
+
 
     def Aster_init(self):
         cfg = self.cfg

@@ -8,7 +8,7 @@ from utils import exceptions
 from timm.models.layers import trunc_normal_, DropPath
 
 from model.transformer import Transformer
-
+from model.moran.asrn_res import Attention
 
 class Wangji(nn.Module):
     def __init__(self, cfg, scale_factor, in_chans = 3):
@@ -83,42 +83,68 @@ class Wangji(nn.Module):
             #LongSkip
 
             if cfg.scale_factor == 2:
-                self.convLS0 = nn.Conv2d(in_channels = in_chans, out_channels = 32, kernel_size = 2, stride=[2,3], dilation=[1,3])
-                self.convLS1 = nn.Conv2d(in_channels = 32, out_channels = (dims[2] * scale_factor - dims[2]), kernel_size = [2,3], stride=[4,2], dilation=3)
+                out_channels = 32
+                self.convLS0 = nn.Conv2d(in_channels = in_chans, out_channels = out_channels, kernel_size = 2, stride=[2,3], dilation=[1,3])
+                self.bn_ls0 = nn.BatchNorm2d(out_channels)
+                out_channels = dims[2] * scale_factor - dims[2]
+                self.convLS1 = nn.Conv2d(in_channels = 32, out_channels = out_channels, kernel_size = [2,3], stride=[4,2], dilation=3)
+                self.bn_ls1 = nn.BatchNorm2d(out_channels)
             elif cfg.scale_factor == 4:
-                self.convLS0 = nn.Conv2d(in_channels = in_chans, out_channels = 32, kernel_size = 2, stride=2, dilation=[3,1])
-                self.convLS1 = nn.Conv2d(in_channels = 32, out_channels = dims[2], kernel_size = 3, stride=[2,3], dilation=[2,3])
-
+                out_channels = 32
+                self.convLS0 = nn.Conv2d(in_channels = in_chans, out_channels = out_channels, kernel_size = 2, stride=2, dilation=[3,1])
+                self.bn_ls0 = nn.BatchNorm2d(out_channels)
+                out_channels = dims[2]
+                self.convLS1 = nn.Conv2d(in_channels = 32, out_channels = out_channels, kernel_size = 3, stride=[2,3], dilation=[2,3])
+                self.bn_ls1 = nn.BatchNorm2d(out_channels)
+                
 
             #Blue Branch
 
             if cfg.scale_factor == 2:
-                self.convBlue1 = nn.Conv2d(in_channels = dims[0], out_channels = dims[1], kernel_size = 2, padding=[0,1], stride=2, dilation=[1,3])
+                out_channels = dims[1]
+                self.convBlue1 = nn.Conv2d(in_channels = dims[0], out_channels = out_channels, kernel_size = 2, padding=[0,1], stride=2, dilation=[1,3])
+                self.bn_blue1 = nn.BatchNorm2d(out_channels)
+                out_channels = dims[2]
                 self.convBlue2 = nn.Conv2d(in_channels=dims[1], out_channels=dims[2], kernel_size=2, padding=[0, 1], stride=2, dilation=[1, 3])
+                self.bn_blue2 = nn.BatchNorm2d(out_channels)
                 # if not cfg.transpose_upsample:
                 #     self.convBlue3 = nn.Conv2d(in_channels=dims[2]*2, out_channels=dims[2]*scale_factor, kernel_size=1)
             if cfg.scale_factor == 4:
-                self.convBlue1 = nn.Conv2d(in_channels = dims[0], out_channels = dims[1], kernel_size = [3,2], stride=[1,2], dilation=[2,1])
-                self.convBlue2 = nn.Conv2d(in_channels=dims[1], out_channels=dims[2], kernel_size=[3,5], stride=1, dilation=1)
+                out_channels = dims[1]
+                self.convBlue1 = nn.Conv2d(in_channels = dims[0], out_channels = out_channels, kernel_size = [3,2], stride=[1,2], dilation=[2,1])
+                self.bn_blue1 = nn.BatchNorm2d(out_channels)
+                out_channels = dims[2]
+                self.convBlue2 = nn.Conv2d(in_channels=dims[1], out_channels=out_channels, kernel_size=[3,5], stride=1, dilation=1)
+                self.bn_blue2 = nn.BatchNorm2d(out_channels)
                 if not cfg.transpose_upsample:
                     if self.cfg.convNext_type == 'S': out_channels = 1024 * 3
                     else: out_channels = dims[2]*scale_factor
                     self.convBlue3 = nn.Conv2d(in_channels=dims[2]*2, out_channels=out_channels, kernel_size=1)
+                    self.bn_blue3 = nn.BatchNorm2d(out_channels)
             
             if cfg.transpose_upsample:
-                if cfg.big_transpose:
+                if cfg.transpose_type == 'big':
                     self.convUpsample1 = nn.ConvTranspose2d(in_channels=dims[2]*2, out_channels=dims[1], kernel_size=[2,5], padding=0, output_padding=0, stride=[2,1], dilation=1)
                     self.convUpsample2 = nn.ConvTranspose2d(in_channels=dims[1], out_channels=dims[0], kernel_size=[5,2], padding=0, output_padding=0, stride=[1,2], dilation=1)
                     self.convUpsample3 = nn.ConvTranspose2d(in_channels=dims[0], out_channels=dims[1], kernel_size=[9,2], padding=0, output_padding=0, stride=[1,2], dilation=1)
-                    self.convUpsample4 = nn.ConvTranspose2d(in_channels=dims[1], out_channels=dims[1], kernel_size=[17,33], padding=0, output_padding=0, stride=1, dilation=1)
-                    self.convUpsample5 = nn.ConvTranspose2d(in_channels=dims[1], out_channels=dims[0], kernel_size=[33,65], padding=0, output_padding=0, stride=1, dilation=1)
-                else:
+                    self.convUpsample4 = nn.ConvTranspose2d(in_channels=dims[1]+3, out_channels=dims[1], kernel_size=[17,33], padding=0, output_padding=0, stride=1, dilation=1)
+                    if cfg.scale_factor == 4:
+                        self.convUpsample5 = nn.ConvTranspose2d(in_channels=dims[1], out_channels=dims[0], kernel_size=[33,65], padding=0, output_padding=0, stride=1, dilation=1)
+                elif cfg.transpose_type == 'med':
+                    self.convUpsample1 = nn.ConvTranspose2d(in_channels=dims[2]*2, out_channels=dims[1], kernel_size=3, padding=1, output_padding=1, stride=2, dilation=1)
+                    self.convUpsample2 = nn.ConvTranspose2d(in_channels=dims[1], out_channels=dims[0], kernel_size=3, padding=1, output_padding=1, stride=2, dilation=1)
+                    self.convUpsample3 = nn.ConvTranspose2d(in_channels=dims[0], out_channels=dims[1], kernel_size=3, padding=1, output_padding=1, stride=2, dilation=1)
+                    self.convUpsample4 = nn.ConvTranspose2d(in_channels=dims[1]+3, out_channels=dims[1], kernel_size=3, padding=1, output_padding=1, stride=2, dilation=1)
+                    if cfg.scale_factor == 4:
+                        self.convUpsample5 = nn.ConvTranspose2d(in_channels=dims[1], out_channels=dims[0], kernel_size=3, padding=1, output_padding=1, stride=2, dilation=1)
+                elif cfg.transpose_type == 'small':
                     self.convUpsample1 = nn.ConvTranspose2d(in_channels=dims[2]*2, out_channels=dims[1], kernel_size=2, padding=0, output_padding=0, stride=2, dilation=1)
                     self.convUpsample2 = nn.ConvTranspose2d(in_channels=dims[1], out_channels=dims[0], kernel_size=2, padding=0, output_padding=0, stride=2, dilation=1)
                     self.convUpsample3 = nn.ConvTranspose2d(in_channels=dims[0], out_channels=dims[1], kernel_size=2, padding=0, output_padding=0, stride=2, dilation=1)
-                    self.convUpsample4 = nn.ConvTranspose2d(in_channels=dims[1], out_channels=dims[1], kernel_size=2, padding=0, output_padding=0, stride=2, dilation=1)
-                    self.convUpsample5 = nn.ConvTranspose2d(in_channels=dims[1], out_channels=dims[0], kernel_size=2, padding=0, output_padding=0, stride=2, dilation=1)
-                finalConv_in_channels = dims[0]
+                    self.convUpsample4 = nn.ConvTranspose2d(in_channels=dims[1]+3, out_channels=dims[1], kernel_size=2, padding=0, output_padding=0, stride=2, dilation=1)
+                    if cfg.scale_factor == 4:
+                        self.convUpsample5 = nn.ConvTranspose2d(in_channels=dims[1], out_channels=dims[0], kernel_size=2, padding=0, output_padding=0, stride=2, dilation=1)
+                finalConv_in_channels = dims[0] if cfg.scale_factor == 4 else dims[1]
             else:
                 self.upsample = sub_pixel(scale_factor)
             
@@ -143,19 +169,16 @@ class Wangji(nn.Module):
         
         if self.cfg.enable_rec and not self.cfg.recognizer == 'transformer':
             #PreProcessing Branch
-
-            # self.convPreProc00 = nn.Conv2d(in_channels = dims[0], out_channels = 32, kernel_size = 3, padding=1, stride=2)
-            self.convPreProc0 = nn.Conv2d(in_channels=dims[0], out_channels=int(dims[2]/3), kernel_size=1)
+            out_channels = int(dims[2]/3)
+            self.convPreProc0 = nn.Conv2d(in_channels=dims[0], out_channels=out_channels, kernel_size=1)
             # Нужно upscale Nearest Neighbors или Bi-Linear Interpolation или Transposed Convolutions
-            self.convPreProc1 = nn.ConvTranspose2d(in_channels=dims[1], out_channels=int(dims[2]/3), kernel_size=2, stride=2)
-            self.convPreProc2 = nn.ConvTranspose2d(in_channels=dims[2], out_channels=int(dims[2]/3), kernel_size=4, stride=4)
+            self.convPreProc1 = nn.ConvTranspose2d(in_channels=dims[1], out_channels=out_channels, kernel_size=2, stride=2)
+            self.convPreProc2 = nn.ConvTranspose2d(in_channels=dims[2], out_channels=out_channels, kernel_size=4, stride=4)
+            self.bn_PreProc = nn.BatchNorm2d(out_channels)
 
             # correlation matrix/Attation from HAN https://paperswithcode.com/paper/single-image-super-resolution-via-a-holistic
-
             self.LAM = LAM_Module(dims[2])
 
-            # self.TGT_VOCAB_SIZE = 88 # большие и маленькие английские буквы + 10 цифр + 25 символов + пробел
-            # self.BOS, self.EOS, self.PAD, self.BLANK = self.TGT_VOCAB_SIZE+1, self.TGT_VOCAB_SIZE+2, self.TGT_VOCAB_SIZE+3, 0
             self.FULL_VOCAB_SIZE = cfg.FULL_VOCAB_SIZE
 
             # self.linear = nn.Linear((16*dims[2]), self.FULL_VOCAB_SIZE)
@@ -163,21 +186,33 @@ class Wangji(nn.Module):
             # LSTM
 
             if self.cfg.recognizer_input == 'att':
-                # input_size = 16*dims[2] if cfg.scale_factor == 2 else 8*dims[2]
-                input_size = cfg.lstm_hidden_size
+                in_features_linear = int((cfg.height/scale_factor/2)*dims[2])
+                input_size_lstm = cfg.lstm_hidden_size
+                # input_size_lstm = in_features_linear
             elif self.cfg.recognizer_input == 'convnext':
                 # input_size = dims[self.cfg.recognizer_input_convnext]
-                input_size = (768 if self.cfg.convNext_type == 'T' or self.cfg.convNext_type == 'S' else 1536) if self.cfg.recognizer_input_convnext == 1 else dims[2]
+                in_features_linear = (768 if self.cfg.convNext_type == 'T' or self.cfg.convNext_type == 'S' else 1536) if self.cfg.recognizer_input_convnext == 1 else dims[2]
                 # self.last_convNext_block = eval("y_block"+str(self.cfg.recognizer_input_convnext))
-            hidden_size = input_size
             num_layers = cfg.num_lstm_layers
             batch_first = True
             bidirectional = cfg.lstm_bidirectional
-            tagset_size  = self.cfg.FULL_VOCAB_SIZE
+            
+            if cfg.moran_att:
+                tagset_size_lstm = input_size_lstm
+            else:
+                tagset_size_lstm  = self.cfg.FULL_VOCAB_SIZE
 
             if cfg.recognizer == 'lstm':
-                self.pre_lstm_linear = nn.Linear(in_features=16*dims[2] if cfg.scale_factor == 2 else 8*dims[2], out_features=hidden_size)
-                self.LSTM = LSTMTagger(input_size, hidden_size, num_layers, batch_first, bidirectional, tagset_size)
+                self.pre_lstm_linear = nn.Linear(in_features=in_features_linear, out_features=input_size_lstm)
+                self.LSTM = LSTMTagger(input_size_lstm, input_size_lstm, num_layers, batch_first, bidirectional, tagset_size_lstm)
+
+                # MORAN attention
+                if cfg.moran_att:
+                    nh = cfg.lstm_hidden_size
+                    nclass = self.cfg.FULL_VOCAB_SIZE
+                    num_embeddings = cfg.lstm_hidden_size
+                    self.attention = Attention(input_size=nh, hidden_size=nh, num_classes=nclass, num_embeddings=num_embeddings, CUDA=True)
+                
             elif cfg.recognizer == 'transformer':
                 self.build_up_transformer()
             else:
@@ -211,7 +246,7 @@ class Wangji(nn.Module):
         self.transformer = transformer
     
     
-    def forward(self, x):
+    def forward(self, x, label_len, label_strs):
         # img = x
         batch_size = x.shape[0]
 
@@ -235,24 +270,28 @@ class Wangji(nn.Module):
         y_sr = None
         if self.cfg.enable_sr:
             y_green_1 = self.convLS0(x)
+            y_green_1 = self.bn_ls0(y_green_1)
             y_green_1 = self.act(y_green_1)
             y_green_2 = self.convLS1(y_green_1)
+            y_green_2 = self.bn_ls1(y_green_2)
             y_green_2 = self.act(y_green_2)
-            del y_green_1
+            # del y_green_1
 
             y_blue_conv1 = self.convBlue1(y_block0)
+            y_blue_conv1 = self.bn_blue1(y_blue_conv1)
             y_blue_conv1 = self.act(y_blue_conv1)
             y_summ1 = y_blue_conv1 + y_block1
-            del y_blue_conv1
+            # del y_blue_conv1
             
             y_blue_conv2 = self.convBlue2(y_summ1)
+            y_blue_conv2 = self.bn_blue2(y_blue_conv2)
             y_blue_conv2 = self.act(y_blue_conv2)
             y_summ2 = y_blue_conv2 + y_block2
-            del y_blue_conv2
+            # del y_blue_conv2
 
             y_concat1 = torch.cat([y_summ2, y_green_2], 1)
-            del y_green_2
-            del y_summ2
+            # del y_green_2
+            # del y_summ2
 
             if self.cfg.transpose_upsample:
                 y_up_conv1 = self.convUpsample1(y_concat1)
@@ -263,12 +302,19 @@ class Wangji(nn.Module):
                 y_summ_t2 = y_up_conv2 + y_block0
                 y_up_conv3 = self.convUpsample3(y_summ_t2)
                 y_up_conv3 = self.act(y_up_conv3)
-                y_up_conv4 = self.convUpsample4(y_up_conv3)
-                y_up_conv4 = self.act(y_up_conv4)
-                y_to_final_conv = self.convUpsample5(y_up_conv4)
-                y_to_final_conv = self.act(y_to_final_conv)
+                y_concat3 = torch.cat([y_up_conv3, x], 1)
+                if self.cfg.scale_factor == 2:
+                    y_to_final_conv = self.convUpsample4(y_concat3)
+                    y_to_final_conv = self.act(y_to_final_conv)
+                elif self.cfg.scale_factor == 4:
+                    y_up_conv4 = self.convUpsample4(y_concat3)
+                    y_up_conv4 = self.act(y_up_conv4)
+                    y_to_final_conv = self.convUpsample5(y_up_conv4)
+                    y_to_final_conv = self.act(y_to_final_conv)
             else:
                 y_blue_conv3 = self.convBlue3(y_concat1) if self.cfg.scale_factor == 4 else y_concat1
+                if self.cfg.scale_factor == 4:
+                    y_blue_conv3 = self.bn_blue3(y_blue_conv3)
                 y_blue_conv3 = self.act(y_blue_conv3)
                 y_to_final_conv = self.upsample(y_blue_conv3)
             y_sr = self.finalConv(y_to_final_conv)
@@ -281,7 +327,7 @@ class Wangji(nn.Module):
             #         f'{torch.mean(y_sr).item():.2f}', '|',
             #         f'{torch.std(y_sr).item():.2f}',)
             y_sr = self.act_sigm(y_sr)
-            del y_concat1
+            # del y_concat1
 
 
         tag_scores = None
@@ -297,10 +343,13 @@ class Wangji(nn.Module):
                     y_flat[:,i] = rearrange(vector, 'b c h w -> b (c h w)')
             elif self.cfg.recognizer_input == 'att':
                 y_convPreProc0 = self.convPreProc0(y_block0)
+                y_convPreProc0 = self.bn_PreProc(y_convPreProc0)
                 y_convPreProc0 = self.act(y_convPreProc0)
                 y_convPreProc1 = self.convPreProc1(y_block1)
+                y_convPreProc1 = self.bn_PreProc(y_convPreProc1)
                 y_convPreProc1 = self.act(y_convPreProc1)
                 y_convPreProc2 = self.convPreProc2(y_block2)
+                y_convPreProc2 = self.bn_PreProc(y_convPreProc2)
                 y_convPreProc2 = self.act(y_convPreProc2)
 
                 y_concat2 = torch.stack([y_convPreProc0, y_convPreProc1, y_convPreProc2], 1)
@@ -317,10 +366,17 @@ class Wangji(nn.Module):
             y_flat = self.pre_lstm_linear(y_flat)
             y_flat = self.act(y_flat)
             tag_scores = self.LSTM(y_flat)
+            tag_scores = rearrange(tag_scores, 'n t c -> t n c')
+            if self.cfg.moran_att:
+                tag_scores = self.attention(tag_scores, label_len, label_strs, False)
 
-            # tag_scores = F.log_softmax(y_linear, dim=2)
-
-            tag_scores = rearrange(tag_scores, 'n t c -> t n c') # для стс лосса
+            tag_scores_batch = torch.zeros((x.shape[0], x.shape[3]//2, self.cfg.FULL_VOCAB_SIZE), dtype=torch.float32)
+            start_ind = 0
+            for b, l in enumerate(label_len):
+                tag_scores_batch[b, 0:l, :] = tag_scores[start_ind:start_ind+l, :]
+                start_ind += l
+            tag_scores = rearrange(tag_scores_batch, 'n t c -> t n c')
+            tag_scores = F.log_softmax(tag_scores, dim=2)
 
         return y_sr, tag_scores
 
