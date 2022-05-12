@@ -62,22 +62,22 @@ enable_lr_albumentations: True
 
 width: 128
 height: 64
-batch_size: 256
-batch_size_val: 256
+batch_size: 50
+batch_size_val: 50
 epochs: 1000
 lr: 0.001
 scale_factor: 2
 workers: 24
 fp16: False
 
-# resume: '/home/helen/code/TextSR/checkpoint/log_2022-04-25_02_21_43.606800 - 39/model_best.pth'
-# resume: '/home/helen/code/TextSR/checkpoint/log_2022-05-11_14_05_52.308501/checkpoint.pth'
-resume: ''
+resume: '/home/helen/code/TextSR/checkpoint/log_2022-05-11_19_34_17.231964 - 69/model_best.pth'
+# resume: '/home/helen/code/TextSR/checkpoint/log_2022-05-11_19_34_17.231964 - 69/checkpoint.pth'
+# resume: ''
 
 # LOSS
 
 lambda_mse: 1
-lambda_ctc: 0.008
+lambda_ctc: 1
 clip_grad_norm_first_epochs: 0.05
 cnt_first_epochs: 6
 clip_grad_norm_: 0.05
@@ -85,7 +85,7 @@ adam_weight_decay: 0
 
 # MODEL STRUCTURE
 
-convNext_type: 'S' # T, S, L
+convNext_type: 'L' # T, S, L
 convnext_layernorm: True
 rec_best_model_save: 'ssim' # ssim, lev_dis, acc По какой метрике сохранять лучшую модель
 # REC
@@ -101,13 +101,13 @@ moran_att: False
 transpose_upsample: True
 transpose_type: 'med' # big med small
 
-batch_norm: False
+batch_norm: True
 
 # BRANCHES
 
 enable_sr: True
 enable_ConvNext: True
-enable_rec: True
+enable_rec: False
 
 freeze_sr: False
 freeze_rec: False
@@ -171,3 +171,5 @@ keep_ratio: False
 max_word_len: 32
 
 vis_dir: 'demo'
+
+test_time: True

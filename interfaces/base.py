@@ -1,5 +1,8 @@
 from collections import OrderedDict
 import string
+import time
+
+from tqdm import tqdm
 import dataset.dataset as dataset
 from dataset.dataset import MyDataset
 import torch
@@ -33,6 +36,7 @@ class TextBase(object):
         # self.align_collate = alignCollate_syn
         # self.mask = self.args.mask
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # self.device = "cpu"
         self.log_dir_name = 'log_' + str(datetime.now()).replace(':', '_').replace(' ', '_')
         self.make_writer()
         self.make_multi_writer()
@@ -191,6 +195,23 @@ class TextBase(object):
             raise ValueError
         if self.args.arch != 'bicubic':
             model = model.to(self.device)
+
+            if self.cfg.test_time:
+                for i in range(10):
+                    x = torch.rand((1, 3, 32, 64), dtype=torch.float32, device=self.device)
+                    y, _ = model(x, '', '')
+
+                times = 0
+                for i in tqdm(range(1000)):
+                    x = torch.rand((1, 3, 32, 64), dtype=torch.float32, device=self.device)
+                    start = time.perf_counter()
+                    y, _ = model(x, '', '')
+                    end = time.perf_counter()
+                    times += end-start
+                                
+                print(times)
+                quit()
+
             image_crit.to(self.device)
             if cfg.ngpu > 1:
                 model = torch.nn.DataParallel(model, device_ids=range(cfg.ngpu))

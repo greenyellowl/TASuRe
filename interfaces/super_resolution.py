@@ -353,6 +353,7 @@ class TextSR(base.TextBase):
                 metrics_dict = {}
                 start_time = time.time() * 1000
                 if j == len(train_loader)-1 and self.cfg.eval:
+                    torch.manual_seed(1234)
                     print('\n')
                     print('\n')
                     print('===================================================VALIDATION===================================================')
