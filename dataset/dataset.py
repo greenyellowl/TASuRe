@@ -57,9 +57,9 @@ class MyDataset():
         else:
             if self.cfg.enable_lr_albumentations:
                 transform_lr = A.Compose([
-                    A.ImageCompression(p=1, quality_lower=50, quality_upper=100),
+                    # A.ImageCompression(p=1, quality_lower=50, quality_upper=100),
                     A.Blur(p=1, blur_limit=[3,7]),
-                    A.RandomBrightnessContrast(p=1),
+                    # A.RandomBrightnessContrast(p=1),
                     A.augmentations.geometric.resize.Resize(height_lr, width_lr),
                 ])
             else:

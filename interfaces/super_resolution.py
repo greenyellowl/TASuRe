@@ -77,6 +77,7 @@ class TextSR(base.TextBase):
                          moran_att: {cfg.moran_att}  \n
                          transpose_upsample: {cfg.transpose_upsample}  \n
                          transpose_type: {cfg.transpose_type}  \n
+                         batch_norm: {cfg.batch_norm}  \n
                            \n
                          BRANCHES:  \n
                          enable_sr: {cfg.enable_sr}  \n

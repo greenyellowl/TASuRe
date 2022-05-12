@@ -85,17 +85,21 @@ class Wangji(nn.Module):
             if cfg.scale_factor == 2:
                 out_channels = 32
                 self.convLS0 = nn.Conv2d(in_channels = in_chans, out_channels = out_channels, kernel_size = 2, stride=[2,3], dilation=[1,3])
-                self.bn_ls0 = nn.BatchNorm2d(out_channels)
+                if self.cfg.batch_norm:
+                    self.bn_ls0 = nn.BatchNorm2d(out_channels)
                 out_channels = dims[2] * scale_factor - dims[2]
                 self.convLS1 = nn.Conv2d(in_channels = 32, out_channels = out_channels, kernel_size = [2,3], stride=[4,2], dilation=3)
-                self.bn_ls1 = nn.BatchNorm2d(out_channels)
+                if self.cfg.batch_norm:
+                    self.bn_ls1 = nn.BatchNorm2d(out_channels)
             elif cfg.scale_factor == 4:
                 out_channels = 32
                 self.convLS0 = nn.Conv2d(in_channels = in_chans, out_channels = out_channels, kernel_size = 2, stride=2, dilation=[3,1])
-                self.bn_ls0 = nn.BatchNorm2d(out_channels)
+                if self.cfg.batch_norm:
+                    self.bn_ls0 = nn.BatchNorm2d(out_channels)
                 out_channels = dims[2]
                 self.convLS1 = nn.Conv2d(in_channels = 32, out_channels = out_channels, kernel_size = 3, stride=[2,3], dilation=[2,3])
-                self.bn_ls1 = nn.BatchNorm2d(out_channels)
+                if self.cfg.batch_norm:
+                    self.bn_ls1 = nn.BatchNorm2d(out_channels)
                 
 
             #Blue Branch
@@ -103,24 +107,29 @@ class Wangji(nn.Module):
             if cfg.scale_factor == 2:
                 out_channels = dims[1]
                 self.convBlue1 = nn.Conv2d(in_channels = dims[0], out_channels = out_channels, kernel_size = 2, padding=[0,1], stride=2, dilation=[1,3])
-                self.bn_blue1 = nn.BatchNorm2d(out_channels)
+                if self.cfg.batch_norm:
+                    self.bn_blue1 = nn.BatchNorm2d(out_channels)
                 out_channels = dims[2]
                 self.convBlue2 = nn.Conv2d(in_channels=dims[1], out_channels=dims[2], kernel_size=2, padding=[0, 1], stride=2, dilation=[1, 3])
-                self.bn_blue2 = nn.BatchNorm2d(out_channels)
+                if self.cfg.batch_norm:
+                    self.bn_blue2 = nn.BatchNorm2d(out_channels)
                 # if not cfg.transpose_upsample:
                 #     self.convBlue3 = nn.Conv2d(in_channels=dims[2]*2, out_channels=dims[2]*scale_factor, kernel_size=1)
             if cfg.scale_factor == 4:
                 out_channels = dims[1]
                 self.convBlue1 = nn.Conv2d(in_channels = dims[0], out_channels = out_channels, kernel_size = [3,2], stride=[1,2], dilation=[2,1])
-                self.bn_blue1 = nn.BatchNorm2d(out_channels)
+                if self.cfg.batch_norm:
+                    self.bn_blue1 = nn.BatchNorm2d(out_channels)
                 out_channels = dims[2]
                 self.convBlue2 = nn.Conv2d(in_channels=dims[1], out_channels=out_channels, kernel_size=[3,5], stride=1, dilation=1)
-                self.bn_blue2 = nn.BatchNorm2d(out_channels)
+                if self.cfg.batch_norm:
+                    self.bn_blue2 = nn.BatchNorm2d(out_channels)
                 if not cfg.transpose_upsample:
                     if self.cfg.convNext_type == 'S': out_channels = 1024 * 3
                     else: out_channels = dims[2]*scale_factor
                     self.convBlue3 = nn.Conv2d(in_channels=dims[2]*2, out_channels=out_channels, kernel_size=1)
-                    self.bn_blue3 = nn.BatchNorm2d(out_channels)
+                    if self.cfg.batch_norm:
+                        self.bn_blue3 = nn.BatchNorm2d(out_channels)
             
             if cfg.transpose_upsample:
                 if cfg.transpose_type == 'big':
@@ -174,7 +183,8 @@ class Wangji(nn.Module):
             # Нужно upscale Nearest Neighbors или Bi-Linear Interpolation или Transposed Convolutions
             self.convPreProc1 = nn.ConvTranspose2d(in_channels=dims[1], out_channels=out_channels, kernel_size=2, stride=2)
             self.convPreProc2 = nn.ConvTranspose2d(in_channels=dims[2], out_channels=out_channels, kernel_size=4, stride=4)
-            self.bn_PreProc = nn.BatchNorm2d(out_channels)
+            if self.cfg.batch_norm:
+                self.bn_PreProc = nn.BatchNorm2d(out_channels)
 
             # correlation matrix/Attation from HAN https://paperswithcode.com/paper/single-image-super-resolution-via-a-holistic
             self.LAM = LAM_Module(dims[2])
@@ -270,21 +280,25 @@ class Wangji(nn.Module):
         y_sr = None
         if self.cfg.enable_sr:
             y_green_1 = self.convLS0(x)
-            y_green_1 = self.bn_ls0(y_green_1)
+            if self.cfg.batch_norm:
+                y_green_1 = self.bn_ls0(y_green_1)
             y_green_1 = self.act(y_green_1)
             y_green_2 = self.convLS1(y_green_1)
-            y_green_2 = self.bn_ls1(y_green_2)
+            if self.cfg.batch_norm:
+                y_green_2 = self.bn_ls1(y_green_2)
             y_green_2 = self.act(y_green_2)
             # del y_green_1
 
             y_blue_conv1 = self.convBlue1(y_block0)
-            y_blue_conv1 = self.bn_blue1(y_blue_conv1)
+            if self.cfg.batch_norm:
+                y_blue_conv1 = self.bn_blue1(y_blue_conv1)
             y_blue_conv1 = self.act(y_blue_conv1)
             y_summ1 = y_blue_conv1 + y_block1
             # del y_blue_conv1
             
             y_blue_conv2 = self.convBlue2(y_summ1)
-            y_blue_conv2 = self.bn_blue2(y_blue_conv2)
+            if self.cfg.batch_norm:
+                y_blue_conv2 = self.bn_blue2(y_blue_conv2)
             y_blue_conv2 = self.act(y_blue_conv2)
             y_summ2 = y_blue_conv2 + y_block2
             # del y_blue_conv2
@@ -314,7 +328,8 @@ class Wangji(nn.Module):
             else:
                 y_blue_conv3 = self.convBlue3(y_concat1) if self.cfg.scale_factor == 4 else y_concat1
                 if self.cfg.scale_factor == 4:
-                    y_blue_conv3 = self.bn_blue3(y_blue_conv3)
+                    if self.cfg.batch_norm:
+                        y_blue_conv3 = self.bn_blue3(y_blue_conv3)
                 y_blue_conv3 = self.act(y_blue_conv3)
                 y_to_final_conv = self.upsample(y_blue_conv3)
             y_sr = self.finalConv(y_to_final_conv)
@@ -343,13 +358,16 @@ class Wangji(nn.Module):
                     y_flat[:,i] = rearrange(vector, 'b c h w -> b (c h w)')
             elif self.cfg.recognizer_input == 'att':
                 y_convPreProc0 = self.convPreProc0(y_block0)
-                y_convPreProc0 = self.bn_PreProc(y_convPreProc0)
+                if self.cfg.batch_norm:
+                    y_convPreProc0 = self.bn_PreProc(y_convPreProc0)
                 y_convPreProc0 = self.act(y_convPreProc0)
                 y_convPreProc1 = self.convPreProc1(y_block1)
-                y_convPreProc1 = self.bn_PreProc(y_convPreProc1)
+                if self.cfg.batch_norm:
+                    y_convPreProc1 = self.bn_PreProc(y_convPreProc1)
                 y_convPreProc1 = self.act(y_convPreProc1)
                 y_convPreProc2 = self.convPreProc2(y_block2)
-                y_convPreProc2 = self.bn_PreProc(y_convPreProc2)
+                if self.cfg.batch_norm:
+                    y_convPreProc2 = self.bn_PreProc(y_convPreProc2)
                 y_convPreProc2 = self.act(y_convPreProc2)
 
                 y_concat2 = torch.stack([y_convPreProc0, y_convPreProc1, y_convPreProc2], 1)
@@ -369,15 +387,14 @@ class Wangji(nn.Module):
             tag_scores = rearrange(tag_scores, 'n t c -> t n c')
             if self.cfg.moran_att:
                 tag_scores = self.attention(tag_scores, label_len, label_strs, False)
-
-            tag_scores_batch = torch.zeros((x.shape[0], x.shape[3]//2, self.cfg.FULL_VOCAB_SIZE), dtype=torch.float32)
-            start_ind = 0
-            for b, l in enumerate(label_len):
-                tag_scores_batch[b, 0:l, :] = tag_scores[start_ind:start_ind+l, :]
-                start_ind += l
-            tag_scores = rearrange(tag_scores_batch, 'n t c -> t n c')
-            tag_scores = F.log_softmax(tag_scores, dim=2)
-
+                tag_scores_batch = torch.zeros((x.shape[0], x.shape[3]//2, self.cfg.FULL_VOCAB_SIZE), dtype=torch.float32)
+                start_ind = 0
+                for b, l in enumerate(label_len):
+                    tag_scores_batch[b, 0:l, :] = tag_scores[start_ind:start_ind+l, :]
+                    start_ind += l
+                tag_scores = rearrange(tag_scores_batch, 'n t c -> t n c')
+                tag_scores = F.log_softmax(tag_scores, dim=2)
+                
         return y_sr, tag_scores
 
 

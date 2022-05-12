@@ -10,8 +10,9 @@
             "request": "launch",
             "program": "main.py",
             "console": "integratedTerminal",
+            // "console": "internalConsole",
             "justMyCode": false,
-            "args": ["--config", "config F.yaml"]
+            "args": ["--config", "config.yaml"]
         }
     ]
 }
