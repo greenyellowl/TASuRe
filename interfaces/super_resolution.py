@@ -1,6 +1,7 @@
 import re
 # from this import d
 from turtle import update
+from pyparsing import srange
 import torch
 from torch.optim.lr_scheduler import ReduceLROnPlateau, ExponentialLR
 from torch.cuda.amp import autocast, GradScaler
@@ -180,169 +181,171 @@ class TextSR(base.TextBase):
             
             pbar = tqdm.tqdm((enumerate(train_loader)), leave = False, desc='batch', total=len(train_loader))
             for j, data in pbar:
-                start_batch_time = time.time() * 1000
                 spend_time = ''
-                start_time = time.time() * 1000
-                model.train()
-                # for p in model.parameters():
-                #     assert p.requires_grad == True
                 iters = len(train_loader) * epoch + j
-                end_time = time.time() * 1000
-                duration = end_time - start_time
-                spend_time += 'first block '+str(duration)+'  \n'
+                if not self.cfg.test_only:
+                    start_batch_time = time.time() * 1000
+                    spend_time = ''
+                    start_time = time.time() * 1000
+                    model.train()
+                    # for p in model.parameters():
+                    #     assert p.requires_grad == True
+                    end_time = time.time() * 1000
+                    duration = end_time - start_time
+                    spend_time += 'first block '+str(duration)+'  \n'
 
-                # Получение данных из датасетов
+                    # Получение данных из датасетов
 
-                start_time = time.time() * 1000
-                images_hr, images_lr, label_len, label_strs, dataset_name = data
-                images_lr = images_lr.to(self.device)
-                images_hr = images_hr.to(self.device)
-                end_time = time.time() * 1000
-                duration = end_time - start_time
-                spend_time += 'Получение данных из датасетов '+str(duration)+'  \n'
+                    start_time = time.time() * 1000
+                    images_hr, images_lr, label_len, label_strs, dataset_name = data
+                    images_lr = images_lr.to(self.device)
+                    images_hr = images_hr.to(self.device)
+                    end_time = time.time() * 1000
+                    duration = end_time - start_time
+                    spend_time += 'Получение данных из датасетов '+str(duration)+'  \n'
 
-                # Прогон модели
+                    # Прогон модели
 
-                length = ''
-                text = ''
-                t, l = self.converter_moran.encode(label_strs, scanned=True)
-                text = torch.LongTensor(cfg.batch_size * 5)
-                length = torch.IntTensor(cfg.batch_size)
-                utils_moran.loadData(text, t)
-                utils_moran.loadData(length, l)
-                
-                start_time = time.time() * 1000
-                if self.cfg.fp16:
-                    with autocast():
-                        images_sr, tag_scores = model(images_lr, length, text)
-                else:
-                    images_sr, tag_scores = model(images_lr, length, text)
-                end_time = time.time() * 1000
-                duration = end_time - start_time
-                spend_time += 'Прогон модели '+str(duration)+'  \n'
-
-                # Лоссы
-                
-                start_time = time.time() * 1000
-                if cfg.recognizer == 'transformer':
-                    loss, mse_loss, attention_loss, recognition_loss, word_decoder_result = image_crit(images_sr, images_hr, label_strs)
-                    self.writer.add_scalar('loss/loss', loss, iters)
-                    self.writer.add_scalar('loss/mse_loss', mse_loss, iters)
-                    self.writer.add_scalar('loss/attention_loss', attention_loss, iters)
-                    self.writer.add_scalar('loss/recognition_loss', recognition_loss, iters)
-                elif cfg.recognizer == 'lstm':
+                    length = ''
+                    text = ''
+                    t, l = self.converter_moran.encode(label_strs, scanned=True)
+                    text = torch.LongTensor(cfg.batch_size * 5)
+                    length = torch.IntTensor(cfg.batch_size)
+                    utils_moran.loadData(text, t)
+                    utils_moran.loadData(length, l)
+                    
+                    start_time = time.time() * 1000
                     if self.cfg.fp16:
                         with autocast():
-                            loss, mse_loss, ctc_loss = image_crit(images_sr, tag_scores, images_hr, label_strs)
+                            images_sr, tag_scores = model(images_lr, length, text)
                     else:
-                        loss, mse_loss, ctc_loss = image_crit(images_sr, tag_scores, images_hr, label_strs)
-                    self.writer.add_scalar('loss/loss', loss, iters)
-                    self.writer.add_scalar('loss/mse_loss', mse_loss, iters)
-                    self.writer.add_scalar('loss/ctc_loss', ctc_loss, iters)
-                
-                    self.multi_writer.add_scalar('Multiloss/train', loss, iters)
-                else:
-                    raise exceptions.WrongRecognizer
-                end_time = time.time() * 1000
-                duration = end_time - start_time
-                spend_time += 'Лоссы '+str(duration)+'  \n'
+                        images_sr, tag_scores = model(images_lr, length, text)
+                    end_time = time.time() * 1000
+                    duration = end_time - start_time
+                    spend_time += 'Прогон модели '+str(duration)+'  \n'
 
-                
-                # Loss и Optimizer
-
-                start_time = time.time() * 1000
-                optimizer.zero_grad()
-
-                if self.cfg.fp16:
-                    scaler.scale(loss).backward()
-                    scaler.unscale_(optimizer)
-                else:
-                    loss.backward()
-                if epoch <= cfg.cnt_first_epochs:
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.clip_grad_norm_first_epochs)
-                else:
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.clip_grad_norm_)
-                if self.cfg.fp16:
-                    scaler.step(optimizer)
-                    scaler.update()
-                else:
-                    optimizer.step()
-
-                total_norm = 0
-                # i = 0
-                for p in model.parameters():
-                    # i += 1
-                    if p.requires_grad:
-                        param_norm = p.grad.data.norm(2)
-                        total_norm += param_norm.item() ** 2
-                total_norm = total_norm ** (1. / 2)
-                self.writer.add_scalar('loss/grad_norm', total_norm, iters)
-                # print(i)
-                # quit()
-                end_time = time.time() * 1000
-                duration = end_time - start_time
-                spend_time += 'Loss и Optimizer '+str(duration)+'  \n'
-
-
-                # Логгирование лосов
-
-                start_time = time.time() * 1000
-                for ind, param_group in enumerate(optimizer.param_groups):
-                    # lr = param_group['lr']
-                    lr = scheduler_warmup.get_last_lr()[0]
-                    self.writer.add_scalar('loss/learning rate', lr, epoch)
-                    break
-                
-                end_time = time.time() * 1000
-                duration = end_time - start_time
-                spend_time += 'Логгирование лосов '+str(duration)+'  \n'
-
-                
-                # Вывод лоссов и ЛР в консоль
-
-                start_time = time.time() * 1000
-                if iters % cfg.displayInterval == 0:
+                    # Лоссы
                     
+                    start_time = time.time() * 1000
                     if cfg.recognizer == 'transformer':
                         loss, mse_loss, attention_loss, recognition_loss, word_decoder_result = image_crit(images_sr, images_hr, label_strs)
-                        info_string = f"loss={float(loss.data):03.3f} | " \
-                                  f"mse_loss={float(mse_loss):03.3f} | " \
-                                  f"attention_loss={float(attention_loss):03.3f} | " \
-                                  f"recognition_loss={recognition_loss:03.3f} | " \
-                                  f"learning rate={lr:.10f}"
+                        self.writer.add_scalar('loss/loss', loss, iters)
+                        self.writer.add_scalar('loss/mse_loss', mse_loss, iters)
+                        self.writer.add_scalar('loss/attention_loss', attention_loss, iters)
+                        self.writer.add_scalar('loss/recognition_loss', recognition_loss, iters)
                     elif cfg.recognizer == 'lstm':
-                        info_string = f"loss={float(loss.data):03.3f} | " \
-                                  f"mse_loss={float(mse_loss):03.3f} | " \
-                                  f"ctc_loss={float(ctc_loss):03.3f} | " \
-                                  f"learning rate={lr:.10f}"
+                        if self.cfg.fp16:
+                            with autocast():
+                                loss, mse_loss, ctc_loss = image_crit(images_sr, tag_scores, images_hr, label_strs)
+                        else:
+                            loss, mse_loss, ctc_loss = image_crit(images_sr, tag_scores, images_hr, label_strs)
+                        self.writer.add_scalar('loss/loss', loss, iters)
+                        self.writer.add_scalar('loss/mse_loss', mse_loss, iters)
+                        self.writer.add_scalar('loss/ctc_loss', ctc_loss, iters)
+                    
+                        self.multi_writer.add_scalar('Multiloss/train', loss, iters)
                     else:
                         raise exceptions.WrongRecognizer
+                    end_time = time.time() * 1000
+                    duration = end_time - start_time
+                    spend_time += 'Лоссы '+str(duration)+'  \n'
 
-                    pbar.set_description(info_string)
-                
-                end_time = time.time() * 1000
-                duration = end_time - start_time
-                spend_time += 'Вывод лоссов и ЛР в консоль '+str(duration)+'  \n'
+                    
+                    # Loss и Optimizer
 
-                
-                # Вывод изображений в TensorBoard на первом батче в эпохе
-                start_time = time.time() * 1000
-                if j == 1 and self.cfg.enable_sr:
-                    index = random.randint(0, images_lr.shape[0]-1)
-                    dataset = dataset_name[index]
-                    show_lr = images_lr[index, ...].clone().detach()
-                    show_hr = images_hr[index, ...].clone().detach()
-                    show_sr = images_sr[index, ...].clone().detach()
+                    start_time = time.time() * 1000
+                    optimizer.zero_grad()
 
-                    # un = UnNormalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+                    if self.cfg.fp16:
+                        scaler.scale(loss).backward()
+                        scaler.unscale_(optimizer)
+                    else:
+                        loss.backward()
+                    if epoch <= cfg.cnt_first_epochs:
+                        torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.clip_grad_norm_first_epochs)
+                    else:
+                        torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.clip_grad_norm_)
+                    if self.cfg.fp16:
+                        scaler.step(optimizer)
+                        scaler.update()
+                    else:
+                        optimizer.step()
 
-                    self.writer.add_image(f'first_batch/{dataset}/{epoch}_epoch_{index}_index_lr_image_first_batch', torch.clamp(show_lr, min=0, max=1), iters)
-                    self.writer.add_image(f'first_batch/{dataset}/{epoch}_epoch_{index}_index_sr_image_first_batch', torch.clamp(show_sr, min=0, max=1), iters)
-                    self.writer.add_image(f'first_batch/{dataset}/{epoch}_epoch_{index}_index_hr_image_first_batch', torch.clamp(show_hr, min=0, max=1), iters)
-                
-                end_time = time.time() * 1000
-                duration = end_time - start_time
-                spend_time += 'Вывод изображений в TensorBoard на первом батче в эпохе '+str(duration)+'  \n'
+                    total_norm = 0
+                    # i = 0
+                    for p in model.parameters():
+                        # i += 1
+                        if p.requires_grad:
+                            param_norm = p.grad.data.norm(2)
+                            total_norm += param_norm.item() ** 2
+                    total_norm = total_norm ** (1. / 2)
+                    self.writer.add_scalar('loss/grad_norm', total_norm, iters)
+                    # print(i)
+                    # quit()
+                    end_time = time.time() * 1000
+                    duration = end_time - start_time
+                    spend_time += 'Loss и Optimizer '+str(duration)+'  \n'
+
+
+                    # Логгирование лосов
+
+                    start_time = time.time() * 1000
+                    for ind, param_group in enumerate(optimizer.param_groups):
+                        # lr = param_group['lr']
+                        lr = scheduler_warmup.get_last_lr()[0]
+                        self.writer.add_scalar('loss/learning rate', lr, epoch)
+                        break
+                    
+                    end_time = time.time() * 1000
+                    duration = end_time - start_time
+                    spend_time += 'Логгирование лосов '+str(duration)+'  \n'
+
+                    
+                    # Вывод лоссов и ЛР в консоль
+
+                    start_time = time.time() * 1000
+                    if iters % cfg.displayInterval == 0:
+                        
+                        if cfg.recognizer == 'transformer':
+                            loss, mse_loss, attention_loss, recognition_loss, word_decoder_result = image_crit(images_sr, images_hr, label_strs)
+                            info_string = f"loss={float(loss.data):03.3f} | " \
+                                    f"mse_loss={float(mse_loss):03.3f} | " \
+                                    f"attention_loss={float(attention_loss):03.3f} | " \
+                                    f"recognition_loss={recognition_loss:03.3f} | " \
+                                    f"learning rate={lr:.10f}"
+                        elif cfg.recognizer == 'lstm':
+                            info_string = f"loss={float(loss.data):03.3f} | " \
+                                    f"mse_loss={float(mse_loss):03.3f} | " \
+                                    f"ctc_loss={float(ctc_loss):03.3f} | " \
+                                    f"learning rate={lr:.10f}"
+                        else:
+                            raise exceptions.WrongRecognizer
+
+                        pbar.set_description(info_string)
+                    
+                    end_time = time.time() * 1000
+                    duration = end_time - start_time
+                    spend_time += 'Вывод лоссов и ЛР в консоль '+str(duration)+'  \n'
+
+                    
+                    # Вывод изображений в TensorBoard на первом батче в эпохе
+                    start_time = time.time() * 1000
+                    if j == 1 and self.cfg.enable_sr:
+                        index = random.randint(0, images_lr.shape[0]-1)
+                        dataset = dataset_name[index]
+                        show_lr = images_lr[index, ...].clone().detach()
+                        show_hr = images_hr[index, ...].clone().detach()
+                        show_sr = images_sr[index, ...].clone().detach()
+
+                        # un = UnNormalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+
+                        self.writer.add_image(f'first_batch/{dataset}/{epoch}_epoch_{index}_index_lr_image_first_batch', torch.clamp(show_lr, min=0, max=1), iters)
+                        self.writer.add_image(f'first_batch/{dataset}/{epoch}_epoch_{index}_index_sr_image_first_batch', torch.clamp(show_sr, min=0, max=1), iters)
+                        self.writer.add_image(f'first_batch/{dataset}/{epoch}_epoch_{index}_index_hr_image_first_batch', torch.clamp(show_hr, min=0, max=1), iters)
+                    
+                    end_time = time.time() * 1000
+                    duration = end_time - start_time
+                    spend_time += 'Вывод изображений в TensorBoard на первом батче в эпохе '+str(duration)+'  \n'
 
 
                 # ВАЛИДАЦИЯ
@@ -352,8 +355,9 @@ class TextSR(base.TextBase):
                 metrics_dict_datasets = {}
                 metrics_dict = {}
                 start_time = time.time() * 1000
-                if j == len(train_loader)-1 and self.cfg.eval:
-                    torch.manual_seed(1234)
+                if (j == len(train_loader)-1 and self.cfg.eval) or self.cfg.test_only:
+                    if self.cfg.test_only:
+                        torch.manual_seed(1234)
                     print('\n')
                     print('\n')
                     print('===================================================VALIDATION===================================================')
@@ -362,7 +366,7 @@ class TextSR(base.TextBase):
 
                     metrics_dict_datasets = {}
 
-                    if epoch % self.cfg.AsterValInterval == 0 and epoch != 0:
+                    if (epoch % self.cfg.AsterValInterval == 0 and epoch != 0) or self.cfg.test_only:
                         aster_sr_accuracy_sum = 0
                         aster_sr_lev_dis_relation_avg_sum = 0
                         aster_lr_accuracy_sum = 0
@@ -370,7 +374,7 @@ class TextSR(base.TextBase):
                         aster_hr_accuracy_sum = 0
                         aster_hr_lev_dis_relation_avg_sum = 0
 
-                    if epoch % self.cfg.CrnnValInterval == 0 and epoch != 0:
+                    if (epoch % self.cfg.CrnnValInterval == 0 and epoch != 0) or self.cfg.test_only:
                         crnn_sr_accuracy_sum = 0
                         crnn_sr_lev_dis_relation_avg_sum = 0
                         crnn_lr_accuracy_sum = 0
@@ -378,7 +382,7 @@ class TextSR(base.TextBase):
                         crnn_hr_accuracy_sum = 0
                         crnn_hr_lev_dis_relation_avg_sum = 0
 
-                    if epoch % self.cfg.MoranValInterval == 0 and epoch != 0:
+                    if (epoch % self.cfg.MoranValInterval == 0 and epoch != 0) or self.cfg.test_only:
                         moran_sr_accuracy_sum = 0
                         moran_sr_lev_dis_relation_avg_sum = 0
                         moran_lr_accuracy_sum = 0
@@ -415,7 +419,7 @@ class TextSR(base.TextBase):
                         best_history_follow_metric_values = self.update_best_metric(metrics_dict, best_history_follow_metric_values, dataset_name, epoch)
 
                         # Рассчёт средних метрик за эпоху
-                        if epoch % self.cfg.AsterValInterval == 0 and epoch != 0:
+                        if (epoch % self.cfg.AsterValInterval == 0 and epoch != 0) or self.cfg.test_only:
                             aster_sr_accuracy_sum += metrics_dict['aster_sr_accuracy']
                             aster_sr_lev_dis_relation_avg_sum += metrics_dict['aster_sr_lev_dis_relation_avg']
                             aster_lr_accuracy_sum += metrics_dict['aster_lr_accuracy']
@@ -423,7 +427,7 @@ class TextSR(base.TextBase):
                             aster_hr_accuracy_sum += metrics_dict['aster_hr_accuracy']
                             aster_hr_lev_dis_relation_avg_sum += metrics_dict['aster_hr_lev_dis_relation_avg']
 
-                        if epoch % self.cfg.CrnnValInterval == 0 and epoch != 0:
+                        if (epoch % self.cfg.CrnnValInterval == 0 and epoch != 0) or self.cfg.test_only:
                             crnn_sr_accuracy_sum += metrics_dict['crnn_sr_accuracy']
                             crnn_sr_lev_dis_relation_avg_sum += metrics_dict['crnn_sr_lev_dis_relation_avg']
                             crnn_lr_accuracy_sum += metrics_dict['crnn_lr_accuracy']
@@ -431,7 +435,7 @@ class TextSR(base.TextBase):
                             crnn_hr_accuracy_sum += metrics_dict['crnn_hr_accuracy']
                             crnn_hr_lev_dis_relation_avg_sum += metrics_dict['crnn_hr_lev_dis_relation_avg']
 
-                        if epoch % self.cfg.MoranValInterval == 0 and epoch != 0:
+                        if (epoch % self.cfg.MoranValInterval == 0 and epoch != 0) or self.cfg.test_only:
                             moran_sr_accuracy_sum += metrics_dict['moran_sr_accuracy']
                             moran_sr_lev_dis_relation_avg_sum += metrics_dict['moran_sr_lev_dis_relation_avg']
                             moran_lr_accuracy_sum += metrics_dict['moran_lr_accuracy']
@@ -511,7 +515,7 @@ class TextSR(base.TextBase):
                     self.writer.add_scalar(f'other_avg/psnr_avg', psnr_avg_sum / cnt, epoch)
                     self.writer.add_scalar(f'other_avg/ssim_avg', ssim_avg_sum / cnt, epoch)
                     
-                    if epoch % self.cfg.AsterValInterval == 0 and epoch != 0:
+                    if (epoch % self.cfg.AsterValInterval == 0 and epoch != 0) or self.cfg.test_only:
                         self.writer.add_scalar(f'accuracy_avg/aster_sr_accuracy', aster_sr_accuracy_sum / cnt * 100, epoch)
                         self.writer.add_scalar(f'other_avg/aster_sr_lev_dis_relation_avg', aster_sr_lev_dis_relation_avg_sum / cnt, epoch)
                         self.writer.add_scalar(f'accuracy_avg/aster_lr_accuracy', aster_lr_accuracy_sum / cnt * 100, epoch)
@@ -519,7 +523,7 @@ class TextSR(base.TextBase):
                         self.writer.add_scalar(f'accuracy_avg/aster_hr_accuracy', aster_hr_accuracy_sum / cnt * 100, epoch)
                         self.writer.add_scalar(f'other_avg/aster_hr_lev_dis_relation_avg', aster_hr_lev_dis_relation_avg_sum / cnt, epoch)
 
-                    if epoch % self.cfg.CrnnValInterval == 0 and epoch != 0:
+                    if (epoch % self.cfg.CrnnValInterval == 0 and epoch != 0) or self.cfg.test_only:
                         self.writer.add_scalar(f'accuracy_avg/crnn_sr_accuracy', crnn_sr_accuracy_sum / cnt * 100, epoch)
                         self.writer.add_scalar(f'other_avg/crnn_sr_lev_dis_relation_avg', crnn_sr_lev_dis_relation_avg_sum / cnt, epoch)
                         self.writer.add_scalar(f'accuracy_avg/crnn_lr_accuracy', crnn_lr_accuracy_sum / cnt * 100, epoch)
@@ -527,7 +531,7 @@ class TextSR(base.TextBase):
                         self.writer.add_scalar(f'accuracy_avg/crnn_hr_accuracy', crnn_hr_accuracy_sum / cnt * 100, epoch)
                         self.writer.add_scalar(f'other_avg/crnn_hr_lev_dis_relation_avg', crnn_hr_lev_dis_relation_avg_sum / cnt, epoch)
                     
-                    if epoch % self.cfg.MoranValInterval == 0 and epoch != 0:
+                    if (epoch % self.cfg.MoranValInterval == 0 and epoch != 0) or self.cfg.test_only:
                         self.writer.add_scalar(f'accuracy_avg/moran_sr_accuracy', moran_sr_accuracy_sum / cnt * 100, epoch)
                         self.writer.add_scalar(f'other_avg/moran_sr_lev_dis_relation_avg', moran_sr_lev_dis_relation_avg_sum / cnt, epoch)
                         self.writer.add_scalar(f'accuracy_avg/moran_lr_accuracy', moran_lr_accuracy_sum / cnt * 100, epoch)
@@ -539,6 +543,10 @@ class TextSR(base.TextBase):
                     self.writer.add_scalar(f'accuracy_avg/ctc_sr_accuracy', ctc_sr_accuracy_sum / cnt * 100, epoch)
                     self.writer.add_scalar(f'other_avg/ctc_sr_lev_dis_relation_avg', ctc_sr_lev_dis_relation_avg_sum / cnt, epoch)
             
+            
+            if self.cfg.test_only:
+                quit()
+
     @staticmethod
     def get_crnn_pred(outputs):
         alphabet = '-0123456789abcdefghijklmnopqrstuvwxyz'
@@ -818,7 +826,7 @@ class TextSR(base.TextBase):
             mse_loss_sum = 0
             ctc_loss_sum = 0
 
-            if epoch % self.cfg.AsterValInterval == 0 and epoch != 0:
+            if (epoch % self.cfg.AsterValInterval == 0 and epoch != 0) or self.cfg.test_only:
                 # ASTER
                 
                 aster_n_correct_sr_sum = 0
@@ -831,7 +839,7 @@ class TextSR(base.TextBase):
                 aster_hr_lev_dis_list = []
                 aster_hr_lev_dis_relation_list = []
             
-            if epoch % self.cfg.CrnnValInterval == 0 and epoch != 0:
+            if (epoch % self.cfg.CrnnValInterval == 0 and epoch != 0) or self.cfg.test_only:
                 # CRNN
 
                 crnn_n_correct_sr_sum = 0
@@ -844,7 +852,7 @@ class TextSR(base.TextBase):
                 crnn_hr_lev_dis_list = []
                 crnn_hr_lev_dis_relation_list = []
 
-            if epoch % self.cfg.MoranValInterval == 0 and epoch != 0:
+            if (epoch % self.cfg.MoranValInterval == 0 and epoch != 0) or self.cfg.test_only:
                 # MORAN
                 moran_n_correct_sr_sum = 0
                 moran_sr_lev_dis_list = []
@@ -978,7 +986,7 @@ class TextSR(base.TextBase):
                     moran_pred_hr = 'NONE'
                     
                     torch.cuda.empty_cache()
-                    if epoch % self.cfg.AsterValInterval == 0 and epoch != 0:
+                    if (epoch % self.cfg.AsterValInterval == 0 and epoch != 0) or self.cfg.test_only:
                         start_time = time.time() * 1000
                         
                         pbar.set_description("calc ASTER")
@@ -1027,7 +1035,7 @@ class TextSR(base.TextBase):
                         duration = end_time - start_time
                         spend_time += '\t \t ASTER '+str(duration)+'  \n'
 
-                    if epoch % self.cfg.CrnnValInterval == 0 and epoch != 0:
+                    if (epoch % self.cfg.CrnnValInterval == 0 and epoch != 0) or self.cfg.test_only:
                         start_time = time.time() * 1000
                         pbar.set_description("calc CRNN")
                         # CRNN
@@ -1074,7 +1082,7 @@ class TextSR(base.TextBase):
                         duration = end_time - start_time
                         spend_time += '\t \t CRNN '+str(duration)+'  \n'
 
-                    if epoch % self.cfg.MoranValInterval == 0 and epoch != 0:
+                    if (epoch % self.cfg.MoranValInterval == 0 and epoch != 0) or self.cfg.test_only:
                         start_time = time.time() * 1000
                         pbar.set_description("calc MORAN")
                         # MORAN
@@ -1182,7 +1190,7 @@ class TextSR(base.TextBase):
 
                         ground_truth = label_strs[index].replace('"', '<quot>')
 
-                        if epoch % self.cfg.AsterValInterval == 0 and epoch != 0:
+                        if (epoch % self.cfg.AsterValInterval == 0 and epoch != 0) or self.cfg.test_only:
                             # ASTER
 
                             aster_pred_sr = aster_predict_result_sr[index].replace('"', '<quot>')
@@ -1193,7 +1201,7 @@ class TextSR(base.TextBase):
                             self.writer.add_text(f'ASTER_LR_pred/{epoch}_epoch/{dataset_name}', aster_lr_pred_text)
                             self.writer.add_text(f'ASTER_HR_pred/{epoch}_epoch/{dataset_name}', aster_hr_pred_text)
 
-                        if epoch % self.cfg.CrnnValInterval == 0 and epoch != 0:
+                        if (epoch % self.cfg.CrnnValInterval == 0 and epoch != 0) or self.cfg.test_only:
                             # CRNN
 
                             crnn_pred_sr = crnn_predict_result_sr[index].replace('"', '<quot>')
@@ -1204,7 +1212,7 @@ class TextSR(base.TextBase):
                             self.writer.add_text(f'CRNN_LR_pred/{epoch}_epoch/{dataset_name}', crnn_lr_pred_text)
                             self.writer.add_text(f'CRNN_HR_pred/{epoch}_epoch/{dataset_name}', crnn_hr_pred_text)
 
-                        if epoch % self.cfg.MoranValInterval == 0 and epoch != 0:
+                        if (epoch % self.cfg.MoranValInterval == 0 and epoch != 0) or self.cfg.test_only:
                             # MORAN
 
                             moran_pred_sr = moran_predict_result_sr[index].replace('"', '<quot>')
@@ -1276,7 +1284,7 @@ class TextSR(base.TextBase):
 
                 print(f'PSNR {float(psnr_avg):.2f} | SSIM {float(ssim_avg):.4f}\t')
 
-                if epoch % self.cfg.AsterValInterval == 0 and epoch != 0:
+                if (epoch % self.cfg.AsterValInterval == 0 and epoch != 0) or self.cfg.test_only:
                     # ASTER
 
                     metric_dict = self.calc_print_external_recognizer(name='aster',
@@ -1293,7 +1301,7 @@ class TextSR(base.TextBase):
                         n_correct_hr_sum=aster_n_correct_hr_sum,
                         hr_lev_dis_relation_list=aster_hr_lev_dis_relation_list)
 
-                if epoch % self.cfg.CrnnValInterval == 0 and epoch != 0:
+                if (epoch % self.cfg.CrnnValInterval == 0 and epoch != 0) or self.cfg.test_only:
                     # CRNN
                 
                     metric_dict = self.calc_print_external_recognizer(name='crnn',
@@ -1310,7 +1318,7 @@ class TextSR(base.TextBase):
                         n_correct_hr_sum=crnn_n_correct_hr_sum,
                         hr_lev_dis_relation_list=crnn_hr_lev_dis_relation_list)
 
-                if epoch % self.cfg.MoranValInterval == 0 and epoch != 0:
+                if (epoch % self.cfg.MoranValInterval == 0 and epoch != 0) or self.cfg.test_only:
                     # MORAN
                 
                     metric_dict = self.calc_print_external_recognizer(name='moran',
