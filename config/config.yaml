@@ -97,7 +97,7 @@ gradient_loss: True
 
 stn: True
 
-convNext_type: 'S' # T, S, L
+convNext_type: 'L' # T, S, L
 convnext_layernorm: True
 rec_best_model_save: 'ssim' # ssim, lev_dis, acc По какой метрике сохранять лучшую модель
 # REC
@@ -113,7 +113,7 @@ moran_att: False
 transpose_upsample: False
 transpose_type: 'med' # big med small
 
-batch_norm: False
+batch_norm: True
 
 # BRANCHES
 
