@@ -36,7 +36,7 @@ class TextBase(object):
         # self.align_collate = alignCollate_syn
         # self.mask = self.args.mask
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        # self.device = "cpu"
+        self.device = "cpu"
         self.log_dir_name = 'log_' + str(datetime.now()).replace(':', '_').replace(' ', '_')
         self.make_writer()
         self.make_multi_writer()
