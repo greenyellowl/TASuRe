@@ -1,4 +1,5 @@
 import os
+import random
 import pandas as pd
 from torch.utils.data import Dataset
 from torchvision.io import read_image, ImageReadMode
@@ -22,61 +23,69 @@ import re
 
 
 class MyDataset():
-    def __init__(self, cfg, isTextZoom, data_dir, data_annotations_file="", isEval = False):
+    def __init__(self, cfg, isTextZoom, data_dir, data_annotations_file="", isEval = False,
+    mask = False):
         self.datasets_folder_path = cfg.datasets_folder_path
         self.data_dir = data_dir
         self.data_annotations_file = data_annotations_file
         self.cfg = cfg
         self.isTextZoom = isTextZoom
         self.isEval = isEval
+        self.mask = mask
         self.regex = re.compile('[^a-zA-Z0-9]')
 
     def load_dataset(self):
 
-        transform = A.Compose([
-        A.RandomBrightnessContrast(p=0.5),
-        A.Rotate(limit=8, p=1, border_mode=cv2.BORDER_CONSTANT),
-        A.InvertImg(p=0.5),
-        A.ChannelShuffle(p=0.5),
-        ])
+        if self.cfg.enable_first_albumentations:
+            transform = A.ReplayCompose([
+                # A.RandomBrightnessContrast(p=0.5),
+                # A.Rotate(limit=8, p=1, border_mode=cv2.BORDER_CONSTANT),
+                A.InvertImg(p=0.5),
+                A.ChannelShuffle(p=0.5),
+            ])
+        else:
+            transform = None
 
         transform_hr = A.Compose([
-        A.augmentations.geometric.resize.Resize(self.cfg.height, self.cfg.width),
-        # A.augmentations.transforms.Normalize(self.cfg.norm_mean, self.cfg.norm_std),
+        A.augmentations.geometric.resize.Resize(self.cfg.height, self.cfg.width, interpolation=cv2.INTER_CUBIC),
         ])
 
         height_lr = int(self.cfg.height / self.cfg.scale_factor)
         width_lr = int(self.cfg.width / self.cfg.scale_factor)
-        if not self.isEval:
+        if self.cfg.enable_lr_albumentations:
             transform_lr = A.Compose([
-                # A.augmentations.geometric.resize.Resize(self.cfg.height / self.cfg.scale_factor, self.cfg.width / self.cfg.scale_factor),
-                A.ImageCompression(p=0.5, quality_lower=50, quality_upper=100),
-                A.Blur(p=0.5, blur_limit=[3,7]),
-                A.augmentations.geometric.resize.Resize(height_lr, width_lr),
+                # A.ImageCompression(p=1, quality_lower=50, quality_upper=100),
+                A.Blur(p=0.75, blur_limit=[3,7]),
+                A.augmentations.geometric.resize.Resize(height_lr, width_lr, interpolation=cv2.INTER_CUBIC),
             ])
         else:
-            if self.cfg.enable_lr_albumentations:
-                transform_lr = A.Compose([
-                    # A.ImageCompression(p=1, quality_lower=50, quality_upper=100),
-                    A.Blur(p=1, blur_limit=[3,7]),
-                    # A.RandomBrightnessContrast(p=1),
-                    A.augmentations.geometric.resize.Resize(height_lr, width_lr),
-                ])
-            else:
-                transform_lr = A.Compose([
-                    A.augmentations.geometric.resize.Resize(height_lr, width_lr),
-                    # A.ImageCompression(p=1, quality_lower=50, quality_upper=100),
-                    # A.Blur(p=1, blur_limit=[3,7]),
-                    # A.RandomBrightnessContrast(p=1),
-                ])
-            transform = None
-        transforms = {'transform_init':transform, 'transform_hr':transform_hr, 'transform_lr':transform_lr}
+            transform_lr = A.Compose([
+                A.augmentations.geometric.resize.Resize(height_lr, width_lr, interpolation=cv2.INTER_CUBIC),
+            ])
 
+        transforms = {'transform_init':transform, 'transform_hr':transform_hr, 'transform_lr':transform_lr}
 
         # Загрузка датасета
         if self.isTextZoom:
+            if not self.cfg.enable_first_albumentations_TextZoom:
+                transform = None
+            
+            if not self.cfg.enable_lr_albumentations_TextZoom and self.cfg.TextZoom == 'real':
+                transform_lr = A.Compose([
+                    A.augmentations.geometric.resize.Resize(height_lr, width_lr, interpolation=cv2.INTER_CUBIC),
+                ])
+
+            # if self.cfg.real_TextZoom:
+            #     transform_lr = None
+            
+            # transform_hr = None
+            # transform_lr = None
+            transforms = {'transform_init':transform, 'transform_hr':transform_hr, 'transform_lr':transform_lr}
+            
             imgs_dir_path = self.datasets_folder_path + self.data_dir
-            train_dataset = lmdbDataset(root=imgs_dir_path, transforms = transforms, max_len=self.cfg.max_len, regex=self.regex, cfg=self.cfg)
+            train_dataset = lmdbDataset(root=imgs_dir_path, transforms = transforms,
+                                        max_len=self.cfg.max_len, regex=self.regex,
+                                        cfg=self.cfg, val=self.isEval, mask=self.mask)
         else:
             annotations_file_path = self.datasets_folder_path + self.data_annotations_file
             imgs_dir_path = self.datasets_folder_path + self.data_dir
@@ -117,11 +126,11 @@ class ICDARImageDataset(Dataset):
 
         if self.transforms:
             image_tr = self.transforms['transform_init'](image=image)['image'] if self.transforms['transform_init'] else image
-            image_hr = self.transforms['transform_hr'](image=image_tr)
-            image_lr = self.transforms['transform_lr'](image=image_tr)
+            image_hr = self.transforms['transform_hr'](image=image_tr)['image'] if self.transforms['transform_hr'] else image_tr
+            image_lr = self.transforms['transform_lr'](image=image_tr)['image'] if self.transforms['transform_lr'] else image_tr
 
-            image_hr = self.to_tensor(image_hr['image'])
-            image_lr = self.to_tensor(image_lr['image'])
+            image_hr = self.to_tensor(image_hr)
+            image_lr = self.to_tensor(image_lr)
         if self.target_transform:
             label = self.target_transform(label)
             
@@ -129,7 +138,8 @@ class ICDARImageDataset(Dataset):
 
 
 class lmdbDataset(Dataset):
-    def __init__(self, regex, cfg, root=None, voc_type='lower', max_len=32, test=False, val=False, transforms=None):
+    def __init__(self, regex, cfg, root=None, voc_type='lower', max_len=32,
+                 test=False, val=False, transforms=None, mask=False):
         super(lmdbDataset, self).__init__()
 
         self.root = root
@@ -141,6 +151,7 @@ class lmdbDataset(Dataset):
         self.dataset_name = os.path.basename(os.path.dirname(os.path.dirname(root)))+'_'+os.path.basename(root)
         self.regex = regex
         self.cfg = cfg
+        self.mask = mask
 
         self.open_lmdb()
         self.env.close()
@@ -152,7 +163,7 @@ class lmdbDataset(Dataset):
 
     def open_lmdb(self):
         self.env = lmdb.open(
-            self.root,
+            os.path.expanduser(self.root),
             max_readers=1,
             readonly=False,
             lock=False,
@@ -171,22 +182,25 @@ class lmdbDataset(Dataset):
 
 
     def __len__(self):
-        if self.test:
-            return self.nSamples * 0.7
-        elif self.val:
-            return self.nSamples * 0.3
-        else:
-            return self.nSamples
+        # if self.test:
+        #     quit(-1)
+        #     return self.nSamples * 0.7
+        # elif self.val:
+        #     quit(-1)
+        #     return self.nSamples * 0.3
+        # else:
+        return self.nSamples
 
     def __getitem__(self, index):
         if not self.initialize:
             self.open_lmdb()
 
         assert index <= len(self), 'index range error'
-        if self.val:
-            index = index + self.nSamples * 0.7 + 1
-        else:
-            index += 1
+        # if self.val:
+        #     index = index + self.nSamples * 0.7 + 1
+        # else:
+        #     index += 1
+        index += 1
         txn = self.env.begin(write=False)
 
         label_key = b'label-%09d' % index
@@ -200,30 +214,85 @@ class lmdbDataset(Dataset):
         if len(word)>32:
             return self[index + 1]
 
-        try:
-            img = self.buf2PIL(txn, b'image_hr-%09d' % index, 'RGB')
-        except TypeError:
-            img = self.buf2PIL(txn, b'image-%09d' % index, 'RGB')
-        except IOError or len(word) > self.max_len:
-            return self[index + 1]
+        if self.cfg.TextZoom == 'real':
+            try:
+                img_hr = self.buf2PIL(txn, b'image_hr-%09d' % index, 'RGB')
+                img_lr = self.buf2PIL(txn, b'image_lr-%09d' % index, 'RGB')
+            except TypeError:
+                img_hr, img_lr = "", ""
+                # img_hr = self.buf2PIL(txn, b'image-%09d' % index, 'RGB')
+                # img_lr = self.buf2PIL(txn, b'image-%09d' % index, 'RGB')
+            except IOError or len(word) > self.max_len:
+                return self[index + 1]
+        elif self.cfg.TextZoom == 'syn':
+            try:
+                img_hr = self.buf2PIL(txn, b'image_hr-%09d' % index, 'RGB')
+                img_lr = img_hr
+            except TypeError:
+                img_hr, img_lr = "", ""
+                # img_hr = self.buf2PIL(txn, b'image-%09d' % index, 'RGB')
+                # img_lr = self.buf2PIL(txn, b'image-%09d' % index, 'RGB')
+            except IOError or len(word) > self.max_len:
+                return self[index + 1]
+        elif self.cfg.TextZoom == 'mix':
+            try:
+                img_hr = self.buf2PIL(txn, b'image_hr-%09d' % index, 'RGB')
+                if self.val or random.uniform(0, 1) < 0.5:
+                    img_lr = self.buf2PIL(txn, b'image_lr-%09d' % index, 'RGB')
+                else:
+                    img_lr = img_hr
+
+            except TypeError:
+                img_hr, img_lr = "", ""
+                # img_hr = self.buf2PIL(txn, b'image-%09d' % index, 'RGB')
+                # img_lr = self.buf2PIL(txn, b'image-%09d' % index, 'RGB')
+            except IOError or len(word) > self.max_len:
+                return self[index + 1]
 
         # label_str = self.str_filt(word, self.voc_type)
         # img.show()
+        # img_np_ma = np.moveaxis(img_np, -1, 0)im = Image.fromarray(A)
         if self.transforms:
-            img_np = np.array(img)
-        # img_np_ma = np.moveaxis(img_np, -1, 0)
-        if self.transforms:
-            image_tr = self.transforms['transform_init'](image=img_np)['image'] if self.transforms['transform_init'] else img_np
-            image_hr = self.transforms['transform_hr'](image=image_tr)['image']
-            image_lr = self.transforms['transform_lr'](image=image_tr)['image']
+            img_np_hr = np.array(img_hr)
+            img_np_lr = np.array(img_lr)
 
-            image_hr = self.to_tensor(image_hr)
-            image_lr = self.to_tensor(image_lr)
+            # Image.fromarray(img_np_hr).save(r"/home/helen/TextZoom/img_np_"+str(index)+"_hr.jpg")
+            # Image.fromarray(img_np_lr).save(r"/home/helen/TextZoom/img_np_"+str(index)+"_lr.jpg")
+            
+            if self.transforms['transform_init']:
+                image_tr_hr_a = self.transforms['transform_init'](image=img_np_hr)
+                image_tr_hr = image_tr_hr_a['image']
+
+                replay = image_tr_hr_a['replay']
+                assert replay is not None
+
+                image_tr_lr_a = A.ReplayCompose.replay(replay, image=img_np_lr)
+                image_tr_lr = image_tr_lr_a['image']
+            else:
+                image_tr_hr = img_np_hr
+                image_tr_lr = img_np_lr
+                
+            image_hr_np = self.transforms['transform_hr'](image=image_tr_hr)['image'] if self.transforms['transform_hr'] else image_tr_hr
+            image_lr_np = self.transforms['transform_lr'](image=image_tr_lr)['image'] if self.transforms['transform_lr'] else image_tr_lr
+
+            image_hr = self.to_tensor(image_hr_np)
+            image_lr = self.to_tensor(image_lr_np)
+
+
+            if self.mask:
+                mask_lr = Image.fromarray(image_lr_np)
+                mask_lr = mask_lr.convert('L')
+                thres = np.array(mask_lr).mean()
+                mask_lr = mask_lr.point(lambda x: 0 if x > thres else 255)
+                mask_lr = self.to_tensor(mask_lr)
+                image_lr = torch.cat((image_lr, mask_lr), 0)
 
         # un = UnNormalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
         # img_un = un(image_hr['image'])
         # plt.imshow(torch.moveaxis(img_un,0,2))
         # plt.show()
+
+
 
         return image_hr, image_lr, len(word), word, self.dataset_name
 

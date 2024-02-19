@@ -1,6 +1,7 @@
 from tokenize import blank_re
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from string import ascii_uppercase, ascii_lowercase
 import numpy as np
 from einops import rearrange
@@ -26,6 +27,8 @@ class WangjiLoss(nn.Module):
         #     self.english_dict[self.english_alphabet[index]] = index
         #
         # self.build_up_transformer()
+        if self.cfg.gradient_loss:
+            self.gp_loss = GradientPriorLoss()
 
 
     def forward(self, sr_img, tag_scores, hr_img, labels):
@@ -73,9 +76,37 @@ class WangjiLoss(nn.Module):
         if self.cfg.enable_sr:
             mse_loss = self.mse_loss(sr_img, hr_img)
 
-        loss = mse_loss * self.cfg.lambda_mse + ctc_loss * self.cfg.lambda_ctc
+        gp_loss = 0
+        if self.cfg.gradient_loss:
+            gp_loss = self.gp_loss(sr_img[:, :3, :, :], hr_img[:, :3, :, :]) 
 
-        return loss, mse_loss, ctc_loss
+        
+        loss = mse_loss * self.cfg.lambda_mse + ctc_loss * self.cfg.lambda_ctc +\
+               gp_loss * self.cfg.lambda_gradient
+        
+
+        return loss, mse_loss, ctc_loss, gp_loss
+
+
+class GradientPriorLoss(nn.Module):
+    def __init__(self, ):
+        super(GradientPriorLoss, self).__init__()
+        self.func = nn.L1Loss()
+
+    def forward(self, out_images, target_images):
+        map_out = self.gradient_map(out_images)
+        map_target = self.gradient_map(target_images)
+        return self.func(map_out, map_target)
+
+    @staticmethod
+    def gradient_map(x):
+        _, _, h_x, w_x = x.size()
+        r = F.pad(x, (0, 1, 0, 0))[:, :, :, 1:]
+        l = F.pad(x, (1, 0, 0, 0))[:, :, :, :w_x]
+        t = F.pad(x, (0, 0, 1, 0))[:, :, :h_x, :]
+        b = F.pad(x, (0, 0, 0, 1))[:, :, 1:, :]
+        xgrad = torch.pow(torch.pow((r - l) * 0.5, 2) + torch.pow((t - b) * 0.5, 2)+1e-6, 0.5)
+        return xgrad
 
     
 

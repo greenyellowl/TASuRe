@@ -57,9 +57,9 @@ scale_factor: 2
 workers: 24
 fp16: False
 
-# resume: '/home/helen/code/TextSR/checkpoint/log_2022-04-25_02_21_43.606800 - 39/model_best.pth'
+resume: '/home/helen/code/TextSR/checkpoint/log_2022-05-11_16_01_41.303808 - 69/model_best.pth'
 # resume: '/home/helen/code/TextSR/checkpoint/log_2022-05-02_12_49_52.696597 - 51/checkpoint.pth'
-resume: ''
+# resume: ''
 
 # LOSS
 

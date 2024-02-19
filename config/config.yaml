@@ -2,7 +2,7 @@
 # DATASETS
 
 #datasets_folder_path: 'D:/Google Drive/Disser/Code/Datasets'
-datasets_folder_path: '/home/helen/Datasets'
+datasets_folder_path: '~/Datasets'
 train_data_dir_of: [
   '/ICDAR OF',
 ]
@@ -10,18 +10,16 @@ train_data_annotations_file_of: [
   '/ICDAR OF/gt.txt',
 ]
 train_data_dir: [
-  '/ICDAR 2013/Challenge2_Training_Task3_Images_GT',
-  '/ICDAR 2015/ch4_training_word_images_gt',
-  '/The Street View Text/svt2/img_train',
-  '/The IIIT 5K-word/train',
-  # '/ICDAR OF',
+  # '/ICDAR 2013/Challenge2_Training_Task3_Images_GT',
+  # '/ICDAR 2015/ch4_training_word_images_gt',
+  # '/The Street View Text/svt2/img_train',
+  # '/The IIIT 5K-word/train',
 ]
 train_data_annotations_file: [
-  '/ICDAR 2013/Challenge2_Training_Task3_Images_GT/gt.txt',
-  '/ICDAR 2015/ch4_training_word_images_gt/gt.txt',
-  '/The Street View Text/svt2/train.txt',
-  '/The IIIT 5K-word/train.txt',
-  # '/ICDAR OF/gt.txt',
+  # '/ICDAR 2013/Challenge2_Training_Task3_Images_GT/gt.txt',
+  # '/ICDAR 2015/ch4_training_word_images_gt/gt.txt',
+  # '/The Street View Text/svt2/train.txt',
+  # '/The IIIT 5K-word/train.txt',
 ]
 
 train_data_textzoom_dir: [
@@ -36,18 +34,16 @@ test_val_data_annotations_file_of: [
   '/ICDAR OF/gt.txt',
 ]
 test_val_data_dir: [
-  '/ICDAR 2013/Challenge2_Test_Task3_Images',
-  '/ICDAR 2015/ch4_test_word_images_gt',
-  '/The Street View Text/svt2/img_test',
-  '/The IIIT 5K-word/test',
-  # '/ICDAR OF',
+  # '/ICDAR 2013/Challenge2_Test_Task3_Images',
+  # '/ICDAR 2015/ch4_test_word_images_gt',
+  # '/The Street View Text/svt2/img_test',
+  # '/The IIIT 5K-word/test',
 ]
 test_val_data_annotations_file: [
-  '/ICDAR 2013/Challenge2_Test_Task3_Images/gt.txt',
-  '/ICDAR 2015/ch4_test_word_images_gt/gt.txt',
-  '/The Street View Text/svt2/test.txt',
-  '/The IIIT 5K-word/test.txt',
-  # '/ICDAR OF/gt.txt',
+  # '/ICDAR 2013/Challenge2_Test_Task3_Images/gt.txt',
+  # '/ICDAR 2015/ch4_test_word_images_gt/gt.txt',
+  # '/The Street View Text/svt2/test.txt',
+  # '/The IIIT 5K-word/test.txt',
 ]
 test_val_textzoom_data_dir: [
   '/TextZoom/test/easy',
@@ -55,35 +51,51 @@ test_val_textzoom_data_dir: [
   '/TextZoom/test/hard',
 ]
 
+TextZoom: 'mix' # 'mix', 'syn', 'real'
+
+input_mask: True
+
 overfitting: False
+
+enable_first_albumentations: True
 enable_lr_albumentations: True
+enable_first_albumentations_TextZoom: True
+enable_lr_albumentations_TextZoom: True
 
 # COMMON
 
 width: 128
 height: 64
-batch_size: 50
-batch_size_val: 50
+batch_size: 160
+batch_size_val: 160
 epochs: 1000
 lr: 0.001
 scale_factor: 2
 workers: 24
 fp16: False
 
-resume: '/home/helen/code/TextSR/checkpoint/log_2022-05-11_19_34_17.231964 - 69/model_best.pth'
-# resume: '/home/helen/code/TextSR/checkpoint/log_2022-05-11_19_34_17.231964 - 69/checkpoint.pth'
-# resume: ''
+# resume: '/home/helen/code/TextSR/checkpoint/log_2022-04-20_12_08_44.120870 - 28/model_best.pth'
+# resume: '/home/helen/code/TextSR/checkpoint/log_2022-04-26_01_00_16.552947 - 42/model_best.pth'
+# resume: '/home/helen/code/TextSR/checkpoint/log_2022-05-13_03_27_43.121425 - 73/checkpoint.pth'
+# resume: '/home/helen/code/TextSR/checkpoint/log_2022-05-11_16_01_41.303808 - 69/model_best.pth'
+# resume: 'checkpoint/log_2022-06-20_12_17_49.038105/checkpoint.pth'
+resume: ''
 
 # LOSS
 
 lambda_mse: 1
-lambda_ctc: 1
-clip_grad_norm_first_epochs: 0.05
-cnt_first_epochs: 6
-clip_grad_norm_: 0.05
+lambda_ctc: 0.004
+lambda_gradient: 1
+
+clip_grad_norm_first_epochs: 200
+cnt_first_epochs: 2
+clip_grad_norm_: 0.5
 adam_weight_decay: 0
+gradient_loss: True
 
 # MODEL STRUCTURE
+
+stn: True
 
 convNext_type: 'L' # T, S, L
 convnext_layernorm: True
@@ -98,7 +110,7 @@ recognizer_input: 'att' # att, convnext. Вход распознавателя
 recognizer_input_convnext: 1 # 1, 2
 moran_att: False
 #SR
-transpose_upsample: True
+transpose_upsample: False
 transpose_type: 'med' # big med small
 
 batch_norm: True
@@ -172,4 +184,5 @@ max_word_len: 32
 
 vis_dir: 'demo'
 
-test_time: True
+test_time: False
+test_only: False

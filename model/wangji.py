@@ -10,13 +10,45 @@ from timm.models.layers import trunc_normal_, DropPath
 from model.transformer import Transformer
 from model.moran.asrn_res import Attention
 
+from .recognizer.tps_spatial_transformer import TPSSpatialTransformer
+from .recognizer.stn_head import STNHead
+
 class Wangji(nn.Module):
     def __init__(self, cfg, scale_factor, in_chans = 3):
         super(Wangji, self).__init__()
-
         self.cfg = cfg
 
-        if self.cfg.convNext_type == 'T':
+        if self.cfg.input_mask:
+            in_chans += 1
+
+        # Statial Transformation Network
+        if self.cfg.stn:
+            self.tps_inputsize = [32, 64]
+            tps_outputsize = [self.cfg.height//self.cfg.scale_factor,
+                              self.cfg.width//self.cfg.scale_factor]
+            num_control_points = 20
+            tps_margins = [0.05, 0.05]
+
+            self.tps = TPSSpatialTransformer(
+                output_image_size=tuple(tps_outputsize),
+                num_control_points=num_control_points,
+                margins=tuple(tps_margins))
+
+            self.stn_head = STNHead(
+                in_planes=in_chans,
+                num_ctrlpoints=num_control_points,
+                activation='none')
+
+
+        if self.cfg.convNext_type == 'TTT':
+            depths = [1, 1, 1]
+            dims = [96, 192, 384]
+            finalConv_in_channels = 3 if cfg.scale_factor == 2 else None
+        elif self.cfg.convNext_type == 'TT':
+            depths = [3, 3, 3]
+            dims = [96, 192, 384]
+            finalConv_in_channels = 3 if cfg.scale_factor == 2 else None
+        elif self.cfg.convNext_type == 'T':
             depths = [3, 3, 9]
             dims = [96, 192, 384]
             finalConv_in_channels = 3 if cfg.scale_factor == 2 else None
@@ -104,7 +136,8 @@ class Wangji(nn.Module):
 
             #Blue Branch
 
-            if cfg.scale_factor == 2:
+            if cfg.scale_factor == 2 or cfg.scale_factor == 1:
+
                 out_channels = dims[1]
                 self.convBlue1 = nn.Conv2d(in_channels = dims[0], out_channels = out_channels, kernel_size = 2, padding=[0,1], stride=2, dilation=[1,3])
                 if self.cfg.batch_norm:
@@ -115,7 +148,9 @@ class Wangji(nn.Module):
                     self.bn_blue2 = nn.BatchNorm2d(out_channels)
                 # if not cfg.transpose_upsample:
                 #     self.convBlue3 = nn.Conv2d(in_channels=dims[2]*2, out_channels=dims[2]*scale_factor, kernel_size=1)
+            
             if cfg.scale_factor == 4:
+
                 out_channels = dims[1]
                 self.convBlue1 = nn.Conv2d(in_channels = dims[0], out_channels = out_channels, kernel_size = [3,2], stride=[1,2], dilation=[2,1])
                 if self.cfg.batch_norm:
@@ -124,6 +159,7 @@ class Wangji(nn.Module):
                 self.convBlue2 = nn.Conv2d(in_channels=dims[1], out_channels=out_channels, kernel_size=[3,5], stride=1, dilation=1)
                 if self.cfg.batch_norm:
                     self.bn_blue2 = nn.BatchNorm2d(out_channels)
+                
                 if not cfg.transpose_upsample:
                     if self.cfg.convNext_type == 'S': out_channels = 1024 * 3
                     else: out_channels = dims[2]*scale_factor
@@ -136,21 +172,24 @@ class Wangji(nn.Module):
                     self.convUpsample1 = nn.ConvTranspose2d(in_channels=dims[2]*2, out_channels=dims[1], kernel_size=[2,5], padding=0, output_padding=0, stride=[2,1], dilation=1)
                     self.convUpsample2 = nn.ConvTranspose2d(in_channels=dims[1], out_channels=dims[0], kernel_size=[5,2], padding=0, output_padding=0, stride=[1,2], dilation=1)
                     self.convUpsample3 = nn.ConvTranspose2d(in_channels=dims[0], out_channels=dims[1], kernel_size=[9,2], padding=0, output_padding=0, stride=[1,2], dilation=1)
-                    self.convUpsample4 = nn.ConvTranspose2d(in_channels=dims[1]+3, out_channels=dims[1], kernel_size=[17,33], padding=0, output_padding=0, stride=1, dilation=1)
+                    if cfg.scale_factor >= 2:
+                        self.convUpsample4 = nn.ConvTranspose2d(in_channels=dims[1]+in_chans, out_channels=dims[1], kernel_size=[17,33], padding=0, output_padding=0, stride=1, dilation=1)
                     if cfg.scale_factor == 4:
                         self.convUpsample5 = nn.ConvTranspose2d(in_channels=dims[1], out_channels=dims[0], kernel_size=[33,65], padding=0, output_padding=0, stride=1, dilation=1)
                 elif cfg.transpose_type == 'med':
                     self.convUpsample1 = nn.ConvTranspose2d(in_channels=dims[2]*2, out_channels=dims[1], kernel_size=3, padding=1, output_padding=1, stride=2, dilation=1)
                     self.convUpsample2 = nn.ConvTranspose2d(in_channels=dims[1], out_channels=dims[0], kernel_size=3, padding=1, output_padding=1, stride=2, dilation=1)
                     self.convUpsample3 = nn.ConvTranspose2d(in_channels=dims[0], out_channels=dims[1], kernel_size=3, padding=1, output_padding=1, stride=2, dilation=1)
-                    self.convUpsample4 = nn.ConvTranspose2d(in_channels=dims[1]+3, out_channels=dims[1], kernel_size=3, padding=1, output_padding=1, stride=2, dilation=1)
+                    if cfg.scale_factor >= 2:
+                        self.convUpsample4 = nn.ConvTranspose2d(in_channels=dims[1]+in_chans, out_channels=dims[1], kernel_size=3, padding=1, output_padding=1, stride=2, dilation=1)
                     if cfg.scale_factor == 4:
                         self.convUpsample5 = nn.ConvTranspose2d(in_channels=dims[1], out_channels=dims[0], kernel_size=3, padding=1, output_padding=1, stride=2, dilation=1)
                 elif cfg.transpose_type == 'small':
                     self.convUpsample1 = nn.ConvTranspose2d(in_channels=dims[2]*2, out_channels=dims[1], kernel_size=2, padding=0, output_padding=0, stride=2, dilation=1)
                     self.convUpsample2 = nn.ConvTranspose2d(in_channels=dims[1], out_channels=dims[0], kernel_size=2, padding=0, output_padding=0, stride=2, dilation=1)
                     self.convUpsample3 = nn.ConvTranspose2d(in_channels=dims[0], out_channels=dims[1], kernel_size=2, padding=0, output_padding=0, stride=2, dilation=1)
-                    self.convUpsample4 = nn.ConvTranspose2d(in_channels=dims[1]+3, out_channels=dims[1], kernel_size=2, padding=0, output_padding=0, stride=2, dilation=1)
+                    if cfg.scale_factor >= 2:
+                        self.convUpsample4 = nn.ConvTranspose2d(in_channels=dims[1]+in_chans, out_channels=dims[1], kernel_size=2, padding=0, output_padding=0, stride=2, dilation=1)
                     if cfg.scale_factor == 4:
                         self.convUpsample5 = nn.ConvTranspose2d(in_channels=dims[1], out_channels=dims[0], kernel_size=2, padding=0, output_padding=0, stride=2, dilation=1)
                 finalConv_in_channels = dims[0] if cfg.scale_factor == 4 else dims[1]
@@ -257,6 +296,13 @@ class Wangji(nn.Module):
     
     
     def forward(self, x, label_len, label_strs):
+        # Rectify input image
+        if self.cfg.stn:
+            if x.shape[2] != self.tps_inputsize[0] or x.shape[3] != self.tps_inputsize[1]:
+                x = F.interpolate(x, self.tps_inputsize, mode='bilinear', align_corners=True)
+            _, ctrl_points_x = self.stn_head(x)
+            x, _ = self.tps(x, ctrl_points_x)
+
         # img = x
         batch_size = x.shape[0]
 
@@ -314,17 +360,21 @@ class Wangji(nn.Module):
                 y_up_conv2 = self.convUpsample2(y_summ_t1)
                 y_up_conv2 = self.act(y_up_conv2)
                 y_summ_t2 = y_up_conv2 + y_block0
-                y_up_conv3 = self.convUpsample3(y_summ_t2)
-                y_up_conv3 = self.act(y_up_conv3)
-                y_concat3 = torch.cat([y_up_conv3, x], 1)
-                if self.cfg.scale_factor == 2:
-                    y_to_final_conv = self.convUpsample4(y_concat3)
-                    y_to_final_conv = self.act(y_to_final_conv)
+                if self.cfg.scale_factor == 1:
+                    y_up_conv3 = self.convUpsample3(y_summ_t2)
+                    y_up_conv3 = self.act(y_up_conv3)
+                    y_to_final_conv = torch.cat([y_up_conv3, x], 1)
+                elif self.cfg.scale_factor == 2:
+                    y_up_conv3 = self.convUpsample3(y_summ_t2)
+                    y_up_conv3 = self.act(y_up_conv3)
+                    y_concat3 = torch.cat([y_up_conv3, x], 1)
+                    y_up_conv4 = self.convUpsample4(y_concat3)
+                    y_to_final_conv = self.act(y_up_conv4)
                 elif self.cfg.scale_factor == 4:
                     y_up_conv4 = self.convUpsample4(y_concat3)
                     y_up_conv4 = self.act(y_up_conv4)
-                    y_to_final_conv = self.convUpsample5(y_up_conv4)
-                    y_to_final_conv = self.act(y_to_final_conv)
+                    y_up_conv5 = self.convUpsample5(y_up_conv4)
+                    y_to_final_conv = self.act(y_up_conv5)
             else:
                 y_blue_conv3 = self.convBlue3(y_concat1) if self.cfg.scale_factor == 4 else y_concat1
                 if self.cfg.scale_factor == 4:

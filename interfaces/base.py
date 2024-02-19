@@ -70,7 +70,8 @@ class TextBase(object):
                                         data_dir=data_dir_,
                                         data_annotations_file=annotations_file,
                                         # voc_type=cfg.voc_type,
-                                        # max_len=cfg.max_len,
+                                        # max_len=cfg.max_len, 
+                                        mask=self.cfg.input_mask,
                                         ).load_dataset()) # создаётся объект класса loadDataset
             if len(cfg.train_data_textzoom_dir) > 0 and not cfg.overfitting:
                 for data_dir_ in cfg.train_data_textzoom_dir: # TextZoom
@@ -80,7 +81,8 @@ class TextBase(object):
                                           isTextZoom=True,
                                           data_dir=data_dir_,
                                           # voc_type=cfg.voc_type,
-                                          # max_len=cfg.max_len,
+                                          # max_len=cfg.max_len, 
+                                          mask=self.cfg.input_mask,
                                           ).load_dataset()) # создаётся объект класса loadDataset
             train_dataset = dataset.ConcatDataset(dataset_list)
         else:
@@ -114,6 +116,7 @@ class TextBase(object):
                                         isEval=True,
                                         # voc_type=cfg.voc_type,
                                         # max_len=cfg.max_len,
+                                        mask=self.cfg.input_mask,
                                         ).load_dataset()
                     dataset_list.append(test_val_dataset) # создаётся объект класса loadDataset
 
@@ -133,6 +136,7 @@ class TextBase(object):
                                           isEval=True,
                                           # voc_type=cfg.voc_type,
                                           # max_len=cfg.max_len,
+                                          mask=self.cfg.input_mask,
                                           ).load_dataset()
                     dataset_list.append(test_val_dataset) # создаётся объект класса loadDataset
 
@@ -222,13 +226,13 @@ class TextBase(object):
                     checkpoint = torch.load(self.resume)
                     model.load_state_dict(checkpoint['model'] if 'model' in checkpoint else checkpoint['state_dict_G'], strict=False)
                     epoch = checkpoint['info']['epochs']
-                    if 'optimizer' in checkpoint and checkpoint['optimizer'] is not None:
+                    if 'optimizer' in checkpoint and checkpoint['optimizer'] is not None and not cfg.test_only:
                         optimizer = self.optimizer_init(model)
                         optimizer.load_state_dict(checkpoint['optimizer'])
-                    if 'scheduler' in checkpoint and checkpoint['scheduler'] is not None:
+                    if 'scheduler' in checkpoint and checkpoint['scheduler'] is not None and not cfg.test_only:
                         scheduler = self.scheduler_init(optimizer)
                         scheduler.load_state_dict(checkpoint['scheduler'])
-                    if 'scheduler_warmup' in checkpoint and checkpoint['scheduler_warmup'] is not None:
+                    if 'scheduler_warmup' in checkpoint and checkpoint['scheduler_warmup'] is not None and not cfg.test_only:
                         scheduler_warmup = self.scheduler_warmup_init(optimizer, epoch)
                         scheduler_warmup.load_state_dict(checkpoint['scheduler_warmup'])
                         epoch += 1

@@ -51,6 +51,7 @@ if __name__ == '__main__':
     parser.add_argument('--demo_dir', type=str, default='./demo')
     parser.add_argument('--config', type=str, default='config.yaml')
     args = parser.parse_args()
+    print(args.config)
     config_path = os.path.join('config', args.config)
     config = yaml.load(open(config_path, 'r'), Loader=yaml.Loader)
     config = EasyDict(config)
