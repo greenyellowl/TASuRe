@@ -127,3 +127,8 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+checkpoint
+checkpoint_old
+pretrained
+launch.json
